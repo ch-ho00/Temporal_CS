@@ -166,14 +166,85 @@ class MnliProcessor(DataProcessor):
                 InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
         return examples
 
+class IntervalProcessor(DataProcessor):
+
+    def get_train_examples(self, data_dir):
+        f = open(os.path.join(data_dir, "dev_3783.tsv"), "r")
+        lines = [x.strip() for x in f.readlines()]
+        qa_pairs = self._create_examples(lines, "train")
+        #TODO: time normalize options
+        # qa_pairs = self.normalize_options(qa_pairs)
+
+        return qa_pairs
+        # sorted_example = sort_by_questsions(examples)
+        # {
+        #     'question1' : {
+        #         'answers' : [1, 10 , 100 ]
+        #         'labels' : [0, 1, 0]
+        #     }
+        # }
+        # for question in sorted_example.keys():
+        #     new_example, label = mixup(sorted_example[question])
+
+        # example_w_pseudo = generate_psuedo_labels(sorted_example)
+        # return example_w_pseudo
+
+    def normalize_options(self, qa_pairs):
+        pass
+
+    def get_dev_examples(self, data_dir):
+        f = open(os.path.join(data_dir, "test_9442.tsv"), "r")
+        lines = [x.strip() for x in f.readlines()]
+        return self._create_examples(lines, "dev")
+
+    def get_labels(self):
+        # set as none as there is no distinctive labe
+        return []
+
+    def _create_examples(self, lines, type):
+        examples = []
+        qa_pairs = {}
+
+        for (i, line) in enumerate(lines):
+            group = line.split("\t")
+            guid = "%s-%s" % (type, i)
+            text_a = group[0] + " " + group[1]
+            text_b = group[2]
+            label = group[3]
+
+            if text_a not in qa_pairs.keys():
+                # text_b
+                # if min_option > normalized(text_b)
+                    # qa_pairs[text_a]['min'] = text_b
+
+                # if max_option < normalized(text_b)
+                    # qa_pairs[text_a]['max'] = text_b
+                qa_pairs[text_a]['options'] = [text_b]
+                qa_pairs[text_a]['labels'] = [label]   
+
+        return qa_pairs
+
 
 class TemporalProcessor(DataProcessor):
 
     def get_train_examples(self, data_dir):
         f = open(os.path.join(data_dir, "dev_3783.tsv"), "r")
         lines = [x.strip() for x in f.readlines()]
-        return self._create_examples(lines, "train")
+        examples = self._create_examples(lines, "train")
+        return examples
+        # sorted_example = sort_by_questsions(examples)
+        # {
+        #     'question1' : {
+        #         'answers' : [1, 10 , 100 ]
+        #         'labels' : [0, 1, 0]
+        #     }
+        # }
+        # for question in sorted_example.keys():
+        #     new_example, label = mixup(sorted_example[question])
 
+        # example_w_pseudo = generate_psuedo_labels(sorted_example)
+        # return example_w_pseudo
+        
     def get_dev_examples(self, data_dir):
         f = open(os.path.join(data_dir, "test_9442.tsv"), "r")
         lines = [x.strip() for x in f.readlines()]
@@ -463,6 +534,18 @@ def main():
     parser.add_argument('--loss_scale',
                         type=float, default=128,
                         help='Loss scaling, positive power of 2 values can improve fp16 convergence.')
+    #############
+    parser.add_argument('--interval_model',
+                        default=False,
+                        action='store_true',
+                        help="Whether to replace the classification model with interval prediction model")
+    # parser.add_argument('--loss_scale',
+    #                     type=float, default=128,
+    #                     help='Loss scaling, positive power of 2 values can improve fp16 convergence.')
+    # parser.add_argument('--loss_scale',
+    #                     type=float, default=128,
+    #                     help='Loss scaling, positive power of 2 values can improve fp16 convergence.')
+    
 
     args = parser.parse_args()
 
@@ -471,6 +554,7 @@ def main():
         "mnli": MnliProcessor,
         "mrpc": MrpcProcessor,
         "temporal": TemporalProcessor,
+        "interval" : IntervalProcessor
     }
 
     if args.local_rank == -1 or args.no_cuda:
@@ -518,13 +602,19 @@ def main():
     train_examples = None
     num_train_steps = None
     if args.do_train:
-        train_examples = processor.get_train_examples(args.data_dir)
-        num_train_steps = int(
-            len(train_examples) / args.train_batch_size / args.gradient_accumulation_steps * args.num_train_epochs)
+        if args.interval_model:
+            import pdb; pdb.set_trace()        
+            pass
+            # train_exaples = processor.
+        else:
+            train_examples = processor.get_train_examples(args.data_dir)
+            num_train_steps = int(
+                len(train_examples) / args.train_batch_size / args.gradient_accumulation_steps * args.num_train_epochs)
 
     # Prepare model
     model = BertForSequenceClassification.from_pretrained(args.bert_model,
                 cache_dir=PYTORCH_PRETRAINED_BERT_CACHE / 'distributed_{}'.format(args.local_rank))
+
     if args.fp16:
         model.half()
     model.to(device)
@@ -582,6 +672,7 @@ def main():
             for step, batch in enumerate(tqdm(train_dataloader, desc="Iteration")):
                 batch = tuple(t.to(device) for t in batch)
                 input_ids, input_mask, segment_ids, label_ids = batch
+                import pdb; pdb.set_trace()
                 loss = model(input_ids, segment_ids, input_mask, label_ids)
                 if n_gpu > 1:
                     loss = loss.mean() # mean() to average on multi-gpu.

@@ -1,0 +1,98 @@
+Parts to be changed
+
+
+
+    Chan Ho
+        Loss
+            (2,)
+                y_min, y_max => (0,1)
+                for all query_y in  0<[y_min, y_max] <1  => positive (i.e. yes to the question)
+
+        How to condition the model on min/max option token/embedding?
+
+
+        Multihead wrapper
+            one head for original inference of question type ""
+
+    T.K.
+        Normalization
+            needed for conditioning model on min/max
+            also for converting option to query_y
+
+        def normalize(option_set , normalize_type='minmax' or 'meanstd'):
+            return normalized_set
+
+            Whether to normalize the query_y or not?
+                how to normalize?
+                    1. mean/ std normalize
+                    2. (y - ymin) / (ymax - ymin)
+                range of normalize
+                    within one question
+                    within corpus of question type
+
+
+    Sean
+        convert_examples_to_features
+            how to deal with input_ids, input_mask, segment_id
+
+        IntervalProcessor
+
+            Question ~ / Min,max option /
+            [1,10, // 100, 1000,// 100000000000]
+            min                 max
+            0   0.2  / 0.5 0.8 / 1 
+            0   0.3  / 0.7  1 /
+
+            # One batch
+                Text + Question / Min,max option in one question's options / query_y (between 0~1) / label of y (+1,-1)
+                    so target is query_y * label of y
+
+
+
+_______________________________________________________
+            
+    How to change loss?
+        y_true is only positive cases
+
+        def np_QD_loss(y_true, y_pred_L, y_pred_U, alpha, soften = 80., lambda_in = 8.):
+            """
+            manually (with np) calc the QD_hard loss
+            """
+            n = y_true.shape[0]
+            y_U_cap = y_pred_U > y_true.reshape(-1)
+            y_L_cap = y_pred_L < y_true.reshape(-1)
+            k_hard = y_U_cap*y_L_cap
+            PICP = np.sum(k_hard)/n
+            # in case didn't capture any need small no.
+            MPIW_cap = np.sum(k_hard * (y_pred_U - y_pred_L)) / (np.sum(k_hard) + 0.001)
+            loss = MPIW_cap + lambda_in * np.sqrt(n) * (max(0,(1-alpha)-PICP)**2)
+
+            return loss
+
+        def np_QD_loss(y_pos, y_neg, y_pred_L, y_pred_U, alpha, soften = 80., lambda_in = 8.):
+            """
+            manually (with np) calc the QD_hard loss
+            """
+
+            n = y_true.shape[0]
+            # positive case
+            y_U_cap = y_pred_U > y_pos.reshape(-1)
+            y_L_cap = y_pred_L < y_pos.reshape(-1)
+            k_hard = y_U_cap*y_L_cap
+            PICP = np.sum(k_hard)/n
+            # in case didn't capture any need small no.
+            MPIW_cap = np.sum(k_hard * (y_pred_U - y_pred_L)) / (np.sum(k_hard) + 0.001)
+
+            # negative case?
+            y_U_cap = y_pred_U > y_neg.reshape(-1)
+            y_L_cap = y_pred_L < y_neg.reshape(-1)
+            k_hard = 1- y_U_cap*y_L_cap
+            PICP = np.sum(k_hard)/n
+            # in case didn't capture any need small no.
+            MPIW_cap = np.sum(k_hard * (y_pred_U - y_pred_L)) / (np.sum(k_hard) + 0.001)
+
+            loss = MPIW_cap + lambda_in * np.sqrt(n) * (max(0,(1-alpha)-PICP)**2)
+
+            return loss
+
+    

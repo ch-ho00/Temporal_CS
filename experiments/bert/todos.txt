@@ -1,0 +1,33 @@
+1. Generating pseudo option answer (in text)
+    1.1 Working on the embedding space
+        Verification
+            is V_"400 hours" is closer to V_"1000 years" compared to V_"100 seconds"
+
+        Average embedding for new optional answers 
+
+    1.2 Text to number to pseudo text
+
+2. How to change how the model is trained / changing from binary to range prediction given a min/max
+    model predicts each min/max between 0~1
+    given that 0 is smallest option, 1 is largest option
+    label = [smallest yes ~ largest yes]
+    => very easy to generate more example
+    [1, 10, 100, 1000, 10000]
+    min                 max
+    min         max
+        min             max
+    [0 ,1, 1 ,0 ,0 ]
+
+    [0, 1, 1, 0]    
+
+    prediction [min, max] conditioned on smallest/largest option
+    => during inference no need to run binary classifier multiple times
+
+
+
+1 batch / sampler to sample rows of the same question
+	1 question / context
+	all the options
+	question type
+	=> 	binary
+		prediction interval conditioned on min/max of options

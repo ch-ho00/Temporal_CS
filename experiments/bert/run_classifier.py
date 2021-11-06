@@ -26,6 +26,10 @@ import os
 import logging
 import argparse
 import random
+import json
+
+from word2number import w2n 
+from sutime import SUTime
 from tqdm import tqdm, trange
 
 import numpy as np
@@ -168,6 +172,110 @@ class MnliProcessor(DataProcessor):
 
 class IntervalProcessor(DataProcessor):
 
+    def __init__(self, jars_path):
+        super(IntervalProcessor, self).__init__()
+        self.sutime = SUTime(jars=jars_path, mark_time_ranges=True, include_range=True)
+        self.convert_map = {
+            "seconds": 1.0,
+            "minutes": 60.0,
+            "hours": 60.0 * 60.0,
+            "days": 24.0 * 60.0 * 60.0,
+            "weeks": 7.0 * 24.0 * 60.0 * 60.0,
+            "months": 30.0 * 24.0 * 60.0 * 60.0,
+            "years": 365.0 * 24.0 * 60.0 * 60.0,
+            "decades": 10.0 * 365.0 * 24.0 * 60.0 * 60.0,
+            "centuries": 100.0 * 365.0 * 24.0 * 60.0 * 60.0,
+        }
+
+    def normalize(self, list_candidate_answers, normalize_type, category):
+        temporal_expressions = [self.sutime.parse(ans) for ans in list_candidate_answers]
+        if category == "Event Duration":
+
+            def get_trivial_floats(tokens):
+                try:
+                    n = w2n.word_to_num(" ".join(tokens))
+                    return n
+                except:
+                    return None
+    
+            def get_surface_floats(tokens):
+                if tokens[-1] in ["a", "an"]:
+                    return 1.0
+                if tokens[-1] == "several":
+                    return 4.0
+                if tokens[-1] == "many":
+                    return 10.0
+                if tokens[-1] == "some":
+                    return 3.0
+                if tokens[-1] == "few":
+                    return 3.0
+                if tokens[-1] == "tens" or " ".join(tokens[-2:]) == "tens of":
+                    return 10.0
+                if tokens[-1] == "hundreds" or " ".join(tokens[-2:]) == "hundreds of":
+                    return 100.0
+                if tokens[-1] == "thousands" or " ".join(tokens[-2:]) == "thousands of":
+                    return 1000.0
+                if " ".join(tokens[-2:]) in ["a few", "a couple"]:
+                    return 3.0
+                if " ".join(tokens[-3:]) == "a couple of":
+                    return 2.0
+                return None
+    
+            def quantity(tokens):
+                try:
+                    if get_trivial_floats(tokens) is not None:
+                        return get_trivial_floats(tokens)
+                    if get_surface_floats(tokens) is not None:
+                        return get_surface_floats(tokens)
+                    string_comb = tokens[-1]
+                    cur = w2n.word_to_num(string_comb)
+                    for i in range(-2, max(-(len(tokens)) - 1, -6), -1):
+                        status = True
+                        try:
+                            _ = w2n.word_to_num(tokens[i])
+                        except:
+                            status = False
+                        if tokens[i] in ["-", "and"] or status:
+                            if tokens[i] != "-":
+                                string_comb = tokens[i] + " " + string_comb
+                            update = w2n.word_to_num(string_comb)
+                            if update is not None:
+                                cur = update
+                        else:
+                            break
+                    if cur is not None:
+                        return float(cur)
+                except Exception as e:
+                    return None 
+    
+            def exp2num(exp):
+                tokens = exp.split()
+                num = self.convert_map[tokens[-1]] * quantity(tokens[:-1])
+                return num
+    
+            temporal_values = np.array([exp2num(exp[0]['text']) for exp in temporal_expressions])
+
+        if category == "Typical Time":
+
+            def exp2min(exp):
+                h, m = exp.split(":")
+                return float(h) * 60 + float(m)
+
+            temporal_values = np.array([exp2min(exp[0]["value"][-5:]) for exp in temporal_expressions])
+
+        if normalize_type == "minmax":
+            min_v = min(temporal_values)
+            max_v = max(temporal_values)
+            return (temporal_values - min_v) / (max_v - min_v)
+        
+        elif normalize_type == "meanstd":
+            mean_v = np.mean(temporal_values)
+            std_v = np.std(temporal_values)
+            return (temporal_values - mean_v) / std_v
+
+        else:
+            return temporal_values
+
     def get_train_examples(self, data_dir):
         f = open(os.path.join(data_dir, "dev_3783.tsv"), "r")
         lines = [x.strip() for x in f.readlines()]
@@ -188,9 +296,6 @@ class IntervalProcessor(DataProcessor):
 
         # example_w_pseudo = generate_psuedo_labels(sorted_example)
         # return example_w_pseudo
-
-    def normalize_options(self, qa_pairs):
-        pass
 
     def get_dev_examples(self, data_dir):
         f = open(os.path.join(data_dir, "test_9442.tsv"), "r")
@@ -448,6 +553,14 @@ def main():
     parser = argparse.ArgumentParser()
 
     ## Required parameters
+    #################################
+    # New argument
+    #################################
+    parser.add_argument("--sutime_jars_path",
+                        default=None,
+                        type=str,
+                        require=True,
+                        help="The path to jars folder required by sutime library")
     parser.add_argument("--data_dir",
                         default=None,
                         type=str,
@@ -594,7 +707,7 @@ def main():
     if task_name not in processors:
         raise ValueError("Task not found: %s" % (task_name))
 
-    processor = processors[task_name]()
+    processor = processors[task_name](args.sutime_jars_path)
     label_list = processor.get_labels()
 
     tokenizer = BertTokenizer.from_pretrained(args.bert_model, do_lower_case=args.do_lower_case)

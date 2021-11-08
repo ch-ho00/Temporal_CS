@@ -176,25 +176,40 @@ class IntervalProcessor(DataProcessor):
         super(IntervalProcessor, self).__init__()
         self.sutime = SUTime(jars=jars_path, mark_time_ranges=True, include_range=True)
         self.convert_map = {
+            **dict.fromkeys(["nanoseconds", "nanosecond"], 1.e-9),
             **dict.fromkeys(["seconds", "second"], 1.0),
             **dict.fromkeys(["minutes", "minute"], 60.0),
             **dict.fromkeys(["hours", "hour"], 60.0 * 60.0),
             **dict.fromkeys(["days", "day"], 24.0 * 60.0 * 60.0),
             **dict.fromkeys(["weeks", "week"], 7.0 * 24.0 * 60.0 * 60.0),
             **dict.fromkeys(["months", "month"], 30.0 * 24.0 * 60.0 * 60.0),
+            **dict.fromkeys(["seasons", "season"], 3.0 * 30.0 * 24.0 * 60.0 * 60.0),
             **dict.fromkeys(["years", "year"], 365.0 * 24.0 * 60.0 * 60.0),
             **dict.fromkeys(["decades", "decade"], 10.0 * 365.0 * 24.0 * 60.0 * 60.0),
             **dict.fromkeys(["centuries", "century"], 100.0 * 365.0 * 24.0 * 60.0 * 60.0)
         }
+        self.ans_errors, self.exp_errors = [], []
 
-    def normalize(self, list_candidate_answers, normalize_type, category):
-        temporal_expressions = [self.sutime.parse(ans) for ans in list_candidate_answers]
+    def normalize(self, list_candidate_answers, normalize_type, category="Event Duration"):
         if category == "Event Duration":
+            def filter(ans):
+                ans = ans.replace(" later", "")
+                pre_select = ["season", "nanosecond"]
+                if any(x in ans for x in pre_select):
+                    return ans
+                else:
+                    try:
+                        return self.sutime.parse(ans)[0]['text']
+                    except:
+                        self.ans_errors.append(ans)
+                        return None
 
             def get_trivial_floats(tokens):
                 try:
-                    n = w2n.word_to_num(" ".join(tokens))
-                    return n
+                    try:
+                        return float(" ".join(tokens).replace("," ,""))
+                    except:
+                        return w2n.word_to_num(" ".join(tokens))
                 except:
                     return None
     
@@ -209,12 +224,18 @@ class IntervalProcessor(DataProcessor):
                     return 3.0
                 if tokens[-1] == "few":
                     return 3.0
+                if tokens[-1] == "couple":
+                    return 3.0    
                 if tokens[-1] == "tens" or " ".join(tokens[-2:]) == "tens of":
                     return 10.0
                 if tokens[-1] == "hundreds" or " ".join(tokens[-2:]) == "hundreds of":
                     return 100.0
                 if tokens[-1] == "thousands" or " ".join(tokens[-2:]) == "thousands of":
                     return 1000.0
+                if tokens[-1] == "millions" or " ".join(tokens[-2:]) == "millions of":
+                    return 1000000.0
+                if tokens[-1] == "billions" or " ".join(tokens[-2:]) == "billions of":
+                    return 1000000.0
                 if " ".join(tokens[-2:]) in ["a few", "a couple"]:
                     return 3.0
                 if " ".join(tokens[-3:]) == "a couple of":
@@ -223,6 +244,8 @@ class IntervalProcessor(DataProcessor):
     
             def quantity(tokens):
                 try:
+                    if not tokens:
+                        return 1
                     if get_trivial_floats(tokens) is not None:
                         return get_trivial_floats(tokens)
                     if get_surface_floats(tokens) is not None:
@@ -249,32 +272,52 @@ class IntervalProcessor(DataProcessor):
                     return None 
     
             def exp2num(exp):
-                tokens = exp.split()
-                num = self.convert_map[tokens[-1]] * quantity(tokens[:-1])
-                return num
-    
-            temporal_values = np.array([exp2num(exp[0]['text']) for exp in temporal_expressions])
+                try:
+                    tokens = exp.split()
+                    num = self.convert_map[tokens[-1]] * quantity(tokens[:-1])
+                    return num
+                except:
+                    self.exp_errors.append(exp)
+                    return None
 
-        if category == "Typical Time":
+            temporal_expressions = [filter(ans) for ans in list_candidate_answers]
+            #temporal_values = np.array([exp2num(exp[0]['text']) for exp in temporal_expressions])
+            temporal_values, masks = [], [] 
+            results = np.array([None] * len(temporal_expressions))
+            for i, exp in enumerate(temporal_expressions):
+                value = exp2num(exp)
+                if value: 
+                    masks.append(i)
+                    temporal_values.append(value)
 
-            def exp2min(exp):
-                h, m = exp.split(":")
-                return float(h) * 60 + float(m)
+            ##################################################
+            # When number of normalizable answers are scarce #
+            ##################################################
+            if len(masks) < 2:
+                return results
 
-            temporal_values = np.array([exp2min(exp[0]["value"][-5:]) for exp in temporal_expressions])
+            temporal_values = np.log(np.array(temporal_values))
+
+        # if category == "Typical Time":
+
+        #     def exp2min(exp):
+        #         h, m = exp.split(":")
+        #         return float(h) * 60 + float(m)
+
+        #     temporal_values = np.array([exp2min(exp[0]["value"][-5:]) for exp in temporal_expressions])
 
         if normalize_type == "minmax":
             min_v = min(temporal_values)
             max_v = max(temporal_values)
-            return (temporal_values - min_v) / (max_v - min_v)
+            temporal_values = (temporal_values - min_v) / (max_v - min_v)
         
         elif normalize_type == "meanstd":
             mean_v = np.mean(temporal_values)
             std_v = np.std(temporal_values)
-            return (temporal_values - mean_v) / std_v
+            temporal_values = (temporal_values - mean_v) / std_v
 
-        else:
-            return temporal_values
+        results[masks] = temporal_values
+        return results
 
     def get_train_examples(self, data_dir):
         f = open(os.path.join(data_dir, "dev_3783.tsv"), "r")

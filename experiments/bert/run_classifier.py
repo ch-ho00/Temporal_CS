@@ -47,7 +47,7 @@ logging.basicConfig(format = '%(asctime)s - %(levelname)s - %(name)s -   %(messa
                     level = logging.INFO)
 logger = logging.getLogger(__name__)
 
-
+#test test
 class InputExample(object):
     """A single training/test example for simple sequence classification."""
 

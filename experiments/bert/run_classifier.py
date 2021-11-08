@@ -176,15 +176,15 @@ class IntervalProcessor(DataProcessor):
         super(IntervalProcessor, self).__init__()
         self.sutime = SUTime(jars=jars_path, mark_time_ranges=True, include_range=True)
         self.convert_map = {
-            "seconds": 1.0,
-            "minutes": 60.0,
-            "hours": 60.0 * 60.0,
-            "days": 24.0 * 60.0 * 60.0,
-            "weeks": 7.0 * 24.0 * 60.0 * 60.0,
-            "months": 30.0 * 24.0 * 60.0 * 60.0,
-            "years": 365.0 * 24.0 * 60.0 * 60.0,
-            "decades": 10.0 * 365.0 * 24.0 * 60.0 * 60.0,
-            "centuries": 100.0 * 365.0 * 24.0 * 60.0 * 60.0,
+            **dict.fromkeys(["seconds", "second"], 1.0),
+            **dict.fromkeys(["minutes", "minute"], 60.0),
+            **dict.fromkeys(["hours", "hour"], 60.0 * 60.0),
+            **dict.fromkeys(["days", "day"], 24.0 * 60.0 * 60.0),
+            **dict.fromkeys(["weeks", "week"], 7.0 * 24.0 * 60.0 * 60.0),
+            **dict.fromkeys(["months", "month"], 30.0 * 24.0 * 60.0 * 60.0),
+            **dict.fromkeys(["years", "year"], 365.0 * 24.0 * 60.0 * 60.0),
+            **dict.fromkeys(["decades", "decade"], 10.0 * 365.0 * 24.0 * 60.0 * 60.0),
+            **dict.fromkeys(["centuries", "century"], 100.0 * 365.0 * 24.0 * 60.0 * 60.0)
         }
 
     def normalize(self, list_candidate_answers, normalize_type, category):

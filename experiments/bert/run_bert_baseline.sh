@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 
-OMP_NUM_THREADS=4 CUDA_VISIBLE_DEVICES=7 python experiments/bert/run_classifier.py \
+OMP_NUM_THREADS=4 CUDA_VISIBLE_DEVICES=7 python run_interval_classifier.py \
   --task_name TEMPORAL \
   --do_train \
   --do_eval \
   --do_lower_case \
-  --data_dir dataset \
+  --data_dir ../../dataset \
   --bert_model bert-base-uncased \
   --max_seq_length 128 \
   --train_batch_size 32 \

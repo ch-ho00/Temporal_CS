@@ -724,6 +724,11 @@ def main():
                         default=None,
                         help="Load original model's checkpoint")
 
+    parser.add_argument('--interval_ckpt',
+                        type=str,
+                        default=None,
+                        help="Load original model's checkpoint")
+
     #####################################
     parser.add_argument("--data_dir",
                         default=None,
@@ -880,14 +885,17 @@ def main():
         train_examples = processor.get_train_examples(args.data_dir)
         num_train_steps = int(
             len(train_examples) / args.train_batch_size / args.gradient_accumulation_steps * args.num_train_epochs)
+    from transformers import BertModel,BertConfig
+    bert_model = BertModel.from_pretrained("bert-base-uncased")
+
 
     # Prepare model
-    model = BertForSequenceClassification.from_pretrained(args.bert_model,
-                cache_dir=PYTORCH_PRETRAINED_BERT_CACHE / 'distributed_{}'.format(args.local_rank))
+    config = BertConfig(args.bert_model, output_hidden_states=True)
+    model = BertForSequenceClassification.from_pretrained(args.bert_model, cache_dir=PYTORCH_PRETRAINED_BERT_CACHE / 'distributed_{}'.format(args.local_rank), config=config)
     import pdb; pdb.set_trace()
     # wrap model to multihead
     if args.interval_model:
-        assert args.orig_ckpt is not None 
+        # assert args.orig_ckpt is not None 
         model = Multihead(args, model)
 
     if args.fp16:
@@ -925,18 +933,18 @@ def main():
     loss_meter = AverageMeter()
 
     if args.do_train:
-        features = convert_examples_to_features(
+        train_features = convert_examples_to_features(
             train_examples, label_list, args.max_seq_length, tokenizer)
         import pdb; pdb.set_trace()
         logger.info("***** Running training *****")
         logger.info("  Num examples = %d", len(train_examples))
         logger.info("  Batch size = %d", args.train_batch_size)
         logger.info("  Num steps = %d", num_train_steps)
-        all_input_ids = torch.tensor([f.input_ids for f in features], dtype=torch.float)
-        all_input_mask = torch.tensor([f.input_mask for f in features], dtype=torch.float)
-        all_segment_ids = torch.tensor([f.segment_ids for f in features], dtype=torch.float)
-        all_label_ids = torch.tensor([f.label_id for f in features], dtype=torch.float)
-        all_head = torch.tensor([f.head for f in features], dtype=torch.float)
+        all_input_ids = torch.tensor([f.input_ids for f in train_features], dtype=torch.long)
+        all_input_mask = torch.tensor([f.input_mask for f in train_features], dtype=torch.long)
+        all_segment_ids = torch.tensor([f.segment_ids for f in train_features], dtype=torch.long)
+        all_label_ids = torch.tensor([f.label_id for f in train_features], dtype=torch.long)
+        all_head = torch.tensor([f.head for f in features], dtype=torch.log)
 
         all_minmax = None
         all_nor_val = None 
@@ -959,13 +967,18 @@ def main():
             nb_tr_examples, nb_tr_steps = 0, 0
             for step, batch in enumerate(tqdm(train_dataloader, desc="Iteration")):
                 batch = tuple(t.to(device) for t in batch)
-                input_ids, input_mask, segment_ids, label_ids, minmax_s, nor_val_s, heads = batch
-                print(minmax_s)
-                print(nor_val_s)
-                print(heads)
+                import pdb; pdb.set_trace()
+                if args.interval_model:
+                    input_ids, input_mask, segment_ids, label_ids, heads, minmax_s, nor_val_s = batch
+                    print(minmax_s)
+                    print(nor_val_s)
+                    print(heads)
+
+                else:
+                    input_ids, input_mask, segment_ids, label_ids, heads = batch
+
                 ### up untill here Sean 11/09
 
-                import pdb; pdb.set_trace()
                 # input_ids=None, attention_mask=None, token_type_ids=None, position_ids=None
                 if args.interval_model:
                     loss, pred_interval = model(input_ids, segment_ids, input_mask, label_ids, minmax_s, nor_val_s, heads)                

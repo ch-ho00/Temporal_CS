@@ -9,12 +9,17 @@ from pytorch_pretrained_bert.file_utils import PYTORCH_PRETRAINED_BERT_CACHE
 class Multihead(nn.Module):
     def __init__(self, args, model):
         super(Multihead, self).__init__()
-        self.orig_model = self.load_ckpt(model, args.orig_ckpt)
         self.interval_model =  model = BertForSequenceClassification.from_pretrained(args.interval_backbone,
                 cache_dir=PYTORCH_PRETRAINED_BERT_CACHE / 'distributed_{}'.format(args.local_rank))       
+        if args.orig_ckpt:
+            self.orig_model = self.load_ckpt(model, args.orig_ckpt)
+        else:
+            self.orig_model = model
+        if args.interval_ckpt: 
+            self.interval_model = self.load_ckpt(self.interval_model, args.interval_ckpt)
 
-        self.orig_model.return_dict = True
-        self.interval_model.return_dict = True 
+        # self.orig_model.return_dict = True
+        # self.interval_model.return_dict = True 
 
     def load_ckpt(self, model, orig_ckpt):
         if torch.cuda.is_available():

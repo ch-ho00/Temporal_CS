@@ -42,6 +42,10 @@ from pytorch_pretrained_bert.modeling import BertForSequenceClassification
 from pytorch_pretrained_bert.optimization import BertAdam
 from pytorch_pretrained_bert.file_utils import PYTORCH_PRETRAINED_BERT_CACHE
 
+# added
+from multihead import Multihead
+from tensorboardX import SummaryWriter
+
 logging.basicConfig(format = '%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                     datefmt = '%m/%d/%Y %H:%M:%S',
                     level = logging.INFO)
@@ -51,7 +55,7 @@ logger = logging.getLogger(__name__)
 class InputExample(object):
     """A single training/test example for simple sequence classification."""
 
-    def __init__(self, guid, text_a, text_b=None, label=None, minmax=None, nor_val=None, haed=1):
+    def __init__(self, guid, text_a, text_b=None, label=None, minmax=None, nor_val=None, head=1):
         """Constructs a InputExample.
         Args:
             guid: Unique id for the example.
@@ -145,39 +149,6 @@ class MrpcProcessor(DataProcessor):
                 InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
         return examples
 
-
-class MnliProcessor(DataProcessor):
-    """Processor for the MultiNLI data set (GLUE version)."""
-
-    def get_train_examples(self, data_dir):
-        """See base class."""
-        return self._create_examples(
-            self._read_tsv(os.path.join(data_dir, "train.tsv")), "train")
-
-    def get_dev_examples(self, data_dir):
-        """See base class."""
-        return self._create_examples(
-            self._read_tsv(os.path.join(data_dir, "dev_matched.tsv")),
-            "dev_matched")
-
-    def get_labels(self):
-        """See base class."""
-        return ["contradiction", "entailment", "neutral"]
-
-    def _create_examples(self, lines, set_type):
-        """Creates examples for the training and dev sets."""
-        examples = []
-        for (i, line) in enumerate(lines):
-            if i == 0:
-                continue
-            guid = "%s-%s" % (set_type, line[0])
-            text_a = line[8]
-            text_b = line[9]
-            label = line[-1]
-            examples.append(
-                InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
-        return examples
-
 class IntervalProcessor(DataProcessor):
 
     def __init__(self, jars_path):
@@ -200,6 +171,7 @@ class IntervalProcessor(DataProcessor):
 
     def normalize(self, list_candidate_answers, normalize_type, category="Event Duration"):
         if category == "Event Duration":
+            # filter unnormalizable/ quantifiable options
             def filter(ans):
                 ans = ans.replace(" later", "")
                 pre_select = ["season", "nanosecond"]
@@ -212,6 +184,7 @@ class IntervalProcessor(DataProcessor):
                         self.ans_errors.append(ans)
                         return None
 
+            
             def get_trivial_floats(tokens):
                 try:
                     try:
@@ -291,10 +264,13 @@ class IntervalProcessor(DataProcessor):
             temporal_expressions = [filter(ans) for ans in list_candidate_answers]
             #temporal_values = np.array([exp2num(exp[0]['text']) for exp in temporal_expressions])
             temporal_values, masks = [], [] 
+
+
             results = np.array([None] * len(temporal_expressions))
             for i, exp in enumerate(temporal_expressions):
                 value = exp2num(exp)
                 if value: 
+                    # mask =1 means normalizable elements 
                     masks.append(i)
                     temporal_values.append(value)
 
@@ -367,6 +343,7 @@ class IntervalProcessor(DataProcessor):
           text_b = group[2]
           label = group[3]
           cat = group[4]
+          #
           if cat not in cat_filter:
             continue
           if text_a in questions:
@@ -392,9 +369,9 @@ class IntervalProcessor(DataProcessor):
           cat = group[4]
 
           if cat not in cat_filter:
-            examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
+            examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label, head=1))
           elif skip_cur_qa_interval == True and cur_q == text_a:
-            examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
+            examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label, head=1))
           else:
               # examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label,  ))
             cur_candidate = questions[text_a][0]
@@ -402,23 +379,25 @@ class IntervalProcessor(DataProcessor):
             # cur_idx = cur_candidate.index(text_b) 
 
             if "yes" not in cur_candidate_label or cur_candidate_label.count("yes") < 2:
-              examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
+                examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label, head=1))
             else:
-              print("cur_candidate:")
-              print(cur_candidate)
-              print(cur_candidate_label)
-              print("cur_idx")
+              pass
+                # import pdb; pdb.set_trace()
+            #   print("cur_candidate:")
+            #   print(cur_candidate)
+            #   print(cur_candidate_label)
+            #   print("cur_idx")
+              # update when question changes
               if cur_q != text_a:
                 cur = False
                 skip_cur_qa_interval = False
                 cur_q = text_a
 
-
+              # at start of each key values of question {}
               if cur == False:
                 cur = True
                 normalize_result = self.normalize(cur_candidate,normalize_type ="minmax",category=cat)
-
-                
+                              
                 # to filiter out candidates that are not normalizable
                 cur_normalize_result = {}
                 filter_cur_candidate = []
@@ -433,20 +412,20 @@ class IntervalProcessor(DataProcessor):
                     filter_cur_candidate_label.append(cur_candidate_label[i])
                     filter_cur_normalize_result.append(normalize_result[i])
 
-              
+                # add option/row that is unnormalizable to normal prediction stream
                 if text_b not in cur_normalize_result:
-                  examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
+                  examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label, head=1))
                 
                 else:
                   cur_ans_normalize_result = cur_normalize_result[text_b]
-                  print(cur_normalize_result)
+                #   print(cur_normalize_result)
 
                   yes_idxs = [i for i,j in enumerate(filter_cur_candidate_label) if j == 'yes']
                   yes_ans =  [j for i,j in enumerate(filter_cur_candidate) if i in yes_idxs]
                   yes_val =  [j for i,j in enumerate(filter_cur_normalize_result) if i in yes_idxs]
 
                   if len(yes_val) < 2:
-                    examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
+                    examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label, head=1))
                     skip_cur_qa_interval = True
                   
                   else:
@@ -457,8 +436,8 @@ class IntervalProcessor(DataProcessor):
                     sort_ans = list(yes_dict.values())
 
                     cur_minmax = [sort_ans[0],sort_ans[-1]]
-                    print("cur_minmaz")
-                    print(cur_minmax)
+                    # print("cur_minmaz")
+                    # print(cur_minmax)
                     examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label, minmax= cur_minmax, nor_val=cur_ans_normalize_result, head=2))
 
                 
@@ -466,30 +445,30 @@ class IntervalProcessor(DataProcessor):
 
               else:
                 if text_b not in cur_normalize_result:
-                  examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
+                  examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label, head=1))
                 else:
                   cur_ans_normalize_result = cur_normalize_result[text_b]
                   examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label, minmax= cur_minmax, nor_val=cur_ans_normalize_result, head=2))
-            # print("cur_candidate:")
-            # print(cur_candidate)
-            # print(cur_candidate_label)
-            # print("cur_idx")
-            # print(cur_idx)
-            # print("cur_ans")
-            # print(text_b)
-            # print("cur_cat")
-            # print(cat)
-            # print(label)
-            # print("normalize_result")
-            # print(normalize_result)
-            # print("cur_ans_normalize_result")
-            # print(cur_ans_normalize_result)
-            # print("Yes ans")
-            # print(yes_ans)
-            # print("Yes val")
-            # print(yes_val)
-            # if i == 30:
-            #   break
+            print("cur_candidate:")
+            print(cur_candidate)
+            print(cur_candidate_label)
+            print("cur_idx")
+            print(cur_idx)
+            print("cur_ans")
+            print(text_b)
+            print("cur_cat")
+            print(cat)
+            print(label)
+            print("normalize_result")
+            print(normalize_result)
+            print("cur_ans_normalize_result")
+            print(cur_ans_normalize_result)
+            print("Yes ans")
+            print(yes_ans)
+            print("Yes val")
+            print(yes_val)
+            if i == 30:
+              break
       return examples
 
 
@@ -530,34 +509,6 @@ class TemporalProcessor(DataProcessor):
             text_b = group[2]
             label = group[3]
             examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
-        return examples
-
-class ColaProcessor(DataProcessor):
-    """Processor for the CoLA data set (GLUE version)."""
-
-    def get_train_examples(self, data_dir):
-        """See base class."""
-        return self._create_examples(
-            self._read_tsv(os.path.join(data_dir, "train.tsv")), "train")
-
-    def get_dev_examples(self, data_dir):
-        """See base class."""
-        return self._create_examples(
-            self._read_tsv(os.path.join(data_dir, "dev.tsv")), "dev")
-
-    def get_labels(self):
-        """See base class."""
-        return ["0", "1"]
-
-    def _create_examples(self, lines, set_type):
-        """Creates examples for the training and dev sets."""
-        examples = []
-        for (i, line) in enumerate(lines):
-            guid = "%s-%s" % (set_type, i)
-            text_a = line[3]
-            label = line[1]
-            examples.append(
-                InputExample(guid=guid, text_a=text_a, text_b=None, label=label))
         return examples
 
 
@@ -720,6 +671,27 @@ def set_optimizer_params_grad(named_params_optimizer, named_params_model, test_n
             param_opti.grad = None
     return is_nan
 
+
+
+class AverageMeter(object):
+    """Computes and stores the average and current value"""
+    def __init__(self):
+        self.reset()
+
+    def reset(self):
+        self.val = 0
+        self.avg = 0
+        self.sum = 0
+        self.count = 0
+
+    def update(self, val, n=1):
+        self.val = val
+        self.sum += val * n
+        self.count += n
+        self.avg = self.sum / self.count if self.count != 0 else 0
+
+
+
 def main():
     parser = argparse.ArgumentParser()
 
@@ -730,8 +702,29 @@ def main():
     parser.add_argument("--sutime_jars_path",
                         default=None,
                         type=str,
-                        require=True,
                         help="The path to jars folder required by sutime library")
+    parser.add_argument("--expname",
+                        default=None,
+                        type=str,
+                        required=True,
+                        help="experiment name")
+
+    parser.add_argument('--interval_model',
+                        default=False,
+                        action='store_true',
+                        help="Whether to replace the classification model with interval prediction model")
+
+    parser.add_argument('--interval_backbone',
+                        type=str,
+                        default='bert-base-uncased',
+                        help="What type of model to use for interval model's feature extraction")
+
+    parser.add_argument('--orig_ckpt',
+                        type=str,
+                        default=None,
+                        help="Load original model's checkpoint")
+
+    #####################################
     parser.add_argument("--data_dir",
                         default=None,
                         type=str,
@@ -818,27 +811,22 @@ def main():
     parser.add_argument('--loss_scale',
                         type=float, default=128,
                         help='Loss scaling, positive power of 2 values can improve fp16 convergence.')
-    #############
-    parser.add_argument('--interval_model',
-                        default=False,
-                        action='store_true',
-                        help="Whether to replace the classification model with interval prediction model")
-    # parser.add_argument('--loss_scale',
-    #                     type=float, default=128,
-    #                     help='Loss scaling, positive power of 2 values can improve fp16 convergence.')
-    # parser.add_argument('--loss_scale',
-    #                     type=float, default=128,
-    #                     help='Loss scaling, positive power of 2 values can improve fp16 convergence.')
     
 
     args = parser.parse_args()
 
     processors = {
-        "cola": ColaProcessor,
-        "mnli": MnliProcessor,
-        "mrpc": MrpcProcessor,
         "temporal": TemporalProcessor,
         "interval" : IntervalProcessor
+    }
+
+    # Tensorboard logging writer
+    tensorboard_log_dir = os.path.join(args.output_dir, 'log')
+    from pathlib import Path
+    Path(tensorboard_log_dir).mkdir(parents=True, exist_ok=True)
+    writer_dict = {
+        'writer': SummaryWriter(log_dir=tensorboard_log_dir),
+        'global_steps': 0
     }
 
     if args.local_rank == -1 or args.no_cuda:
@@ -869,8 +857,8 @@ def main():
     if not args.do_train and not args.do_eval:
         raise ValueError("At least one of `do_train` or `do_eval` must be True.")
 
-    if os.path.exists(args.output_dir) and os.listdir(args.output_dir):
-        raise ValueError("Output directory ({}) already exists and is not empty.".format(args.output_dir))
+    # if os.path.exists(args.output_dir) and os.listdir(args.output_dir):
+    #     raise ValueError("Output directory ({}) already exists and is not empty.".format(args.output_dir))
     os.makedirs(args.output_dir, exist_ok=True)
 
     task_name = args.task_name.lower()
@@ -878,7 +866,10 @@ def main():
     if task_name not in processors:
         raise ValueError("Task not found: %s" % (task_name))
 
-    processor = processors[task_name](args.sutime_jars_path)
+    params = {}
+    if args.sutime_jars_path:
+        params[jars_path] = args.sutime_jars_path
+    processor = processors[task_name](**params)
     label_list = processor.get_labels()
 
     tokenizer = BertTokenizer.from_pretrained(args.bert_model, do_lower_case=args.do_lower_case)
@@ -886,18 +877,18 @@ def main():
     train_examples = None
     num_train_steps = None
     if args.do_train:
-        if args.interval_model:
-            import pdb; pdb.set_trace()        
-            pass
-            # train_exaples = processor.
-        else:
-            train_examples = processor.get_train_examples(args.data_dir)
-            num_train_steps = int(
-                len(train_examples) / args.train_batch_size / args.gradient_accumulation_steps * args.num_train_epochs)
+        train_examples = processor.get_train_examples(args.data_dir)
+        num_train_steps = int(
+            len(train_examples) / args.train_batch_size / args.gradient_accumulation_steps * args.num_train_epochs)
 
     # Prepare model
     model = BertForSequenceClassification.from_pretrained(args.bert_model,
                 cache_dir=PYTORCH_PRETRAINED_BERT_CACHE / 'distributed_{}'.format(args.local_rank))
+    import pdb; pdb.set_trace()
+    # wrap model to multihead
+    if args.interval_model:
+        assert args.orig_ckpt is not None 
+        model = Multihead(args, model)
 
     if args.fp16:
         model.half()
@@ -931,9 +922,12 @@ def main():
                          t_total=t_total)
 
     global_step = 0
+    loss_meter = AverageMeter()
+
     if args.do_train:
-        train_features = convert_examples_to_features(
+        features = convert_examples_to_features(
             train_examples, label_list, args.max_seq_length, tokenizer)
+        import pdb; pdb.set_trace()
         logger.info("***** Running training *****")
         logger.info("  Num examples = %d", len(train_examples))
         logger.info("  Batch size = %d", args.train_batch_size)
@@ -942,12 +936,19 @@ def main():
         all_input_mask = torch.tensor([f.input_mask for f in features], dtype=torch.float)
         all_segment_ids = torch.tensor([f.segment_ids for f in features], dtype=torch.float)
         all_label_ids = torch.tensor([f.label_id for f in features], dtype=torch.float)
-        all_minmax = torch.tensor(np.array([f.minmax for f in features],dtype=float), dtype=torch.float)
-        all_nor_val = torch.tensor(np.array([f.nor_val for f in features],dtype=float), dtype=torch.float)
         all_head = torch.tensor([f.head for f in features], dtype=torch.float)
-        train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids, all_minmax, all_nor_val, all_head)
+
+        all_minmax = None
+        all_nor_val = None 
+        if args.interval_model:
+            all_minmax = torch.tensor(np.array([f.minmax for f in features],dtype=float), dtype=torch.float)
+            all_nor_val = torch.tensor(np.array([f.nor_val for f in features],dtype=float), dtype=torch.float)
+            train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids, all_head, all_minmax, all_nor_val)
+        else:
+            train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids, all_head)
         if args.local_rank == -1:
             train_sampler = RandomSampler(train_data)
+            # need to change sampler?
         else:
             train_sampler = DistributedSampler(train_data)
         train_dataloader = DataLoader(train_data, sampler=train_sampler, batch_size=args.train_batch_size)
@@ -965,7 +966,11 @@ def main():
                 ### up untill here Sean 11/09
 
                 import pdb; pdb.set_trace()
-                loss = model(input_ids, segment_ids, input_mask, label_ids)
+                # input_ids=None, attention_mask=None, token_type_ids=None, position_ids=None
+                if args.interval_model:
+                    loss, pred_interval = model(input_ids, segment_ids, input_mask, label_ids, minmax_s, nor_val_s, heads)                
+                else:
+                    loss = model(input_ids, segment_ids, input_mask, label_ids)
                 if n_gpu > 1:
                     loss = loss.mean() # mean() to average on multi-gpu.
                 if args.fp16 and args.loss_scale != 1.0:
@@ -973,9 +978,13 @@ def main():
                     # see https://docs.nvidia.com/deeplearning/sdk/mixed-precision-training/index.html
                     loss = loss * args.loss_scale
                 if args.gradient_accumulation_steps > 1:
-                    loss = loss / args.gradient_accumulation_steps
+                    loss = loss / args.gradient_accumulation_steps                  
                 loss.backward()
                 tr_loss += loss.item()
+                loss_meter.update(loss.item(), n=len(batch))
+                writer_dict['global_steps'] += 1 
+                writer.add_scalar('train_loss', loss_meter.avg, writer_dict['global_steps'])        
+
                 nb_tr_examples += input_ids.size(0)
                 nb_tr_steps += 1
                 if (step + 1) % args.gradient_accumulation_steps == 0:

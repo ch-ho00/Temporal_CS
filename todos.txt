@@ -1,0 +1,11 @@
+urgent
+    change sampler
+
+post analysis after training
+    visualize the predicted interval & positive/negative GT?
+
+
+done
+    tensorboardX
+    multihead model wrapper
+    

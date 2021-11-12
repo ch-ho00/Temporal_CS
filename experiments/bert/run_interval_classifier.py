@@ -331,145 +331,142 @@ class IntervalProcessor(DataProcessor):
         return ["yes", "no"]
 
     def _create_examples(self, lines, type):
-      cat_filter = ["Event Duration"]
+        cat_filter = ["Event Duration"]
 
-      questions = {}
+        questions = {}
 
 
-      for (i, line) in enumerate(lines):
-          group = line.split("\t")
-          guid = "%s-%s" % (type, i)
-          text_a = group[0] + " " + group[1]
-          text_b = group[2]
-          label = group[3]
-          cat = group[4]
-          #
-          if cat not in cat_filter:
-            continue
-          if text_a in questions:
-            questions[text_a][0].append(text_b)
-            questions[text_a][1].append(label)
-          else:
-            questions[text_a] = [[text_b],[label]]
+        for (i, line) in enumerate(lines):
+            group = line.split("\t")
+            guid = "%s-%s" % (type, i)
+            text_a = group[0] + " " + group[1]
+            text_b = group[2]
+            label = group[3]
+            cat = group[4]
+            #
+            if cat not in cat_filter:
+                continue
+            if text_a in questions:
+                questions[text_a][0].append(text_b)
+                questions[text_a][1].append(label)
+            else:
+                questions[text_a] = [[text_b],[label]]
 
-      examples = []
+        examples = []
 
-      cur = False
-      cur_normalize_result = None
-      cur_q = None
-      cur_minmax = None
-      skip_cur_qa_interval = False
+        cur = False
+        cur_normalize_result = None
+        cur_q = None
+        cur_minmax = None
+        skip_cur_qa_interval = False
 
-      for (i, line) in enumerate(lines):
-          group = line.split("\t")
-          guid = "%s-%s" % (type, i)
-          text_a = group[0] + " " + group[1]
-          text_b = group[2]
-          label = group[3]
-          cat = group[4]
+        for (i, line) in enumerate(lines):
+            group = line.split("\t")
+            guid = "%s-%s" % (type, i)
+            text_a = group[0] + " " + group[1]
+            text_b = group[2]
+            label = group[3]
+            cat = group[4]
 
-          if cat not in cat_filter:
-            examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label, head=1))
-          elif skip_cur_qa_interval == True and cur_q == text_a:
-            examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label, head=1))
-          else:
-              # examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label,  ))
-            cur_candidate = questions[text_a][0]
-            cur_candidate_label = questions[text_a][1]
-            # cur_idx = cur_candidate.index(text_b) 
-
-            if "yes" not in cur_candidate_label or cur_candidate_label.count("yes") < 2:
+            if cat not in cat_filter:
+                examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label, head=1))
+            elif skip_cur_qa_interval == True and cur_q == text_a:
                 examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label, head=1))
             else:
-              pass
-                # import pdb; pdb.set_trace()
-            #   print("cur_candidate:")
-            #   print(cur_candidate)
-            #   print(cur_candidate_label)
-            #   print("cur_idx")
-              # update when question changes
-              if cur_q != text_a:
-                cur = False
-                skip_cur_qa_interval = False
-                cur_q = text_a
+                # examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label,  ))
+                cur_candidate = questions[text_a][0]
+                cur_candidate_label = questions[text_a][1]
+                # cur_idx = cur_candidate.index(text_b) 
 
-              # at start of each key values of question {}
-              if cur == False:
-                cur = True
-                normalize_result = self.normalize(cur_candidate,normalize_type ="minmax",category=cat)
-                              
-                # to filiter out candidates that are not normalizable
-                cur_normalize_result = {}
-                filter_cur_candidate = []
-                filter_cur_candidate_label = []
-                filter_cur_normalize_result = []
-                for i, j in enumerate(zip(cur_candidate, normalize_result)):
-                  if j[1] == None:
-                    continue
-                  else:
-                    cur_normalize_result[j[0]] = j[1]
-                    filter_cur_candidate.append(cur_candidate[i])
-                    filter_cur_candidate_label.append(cur_candidate_label[i])
-                    filter_cur_normalize_result.append(normalize_result[i])
+                # if "yes" not in cur_candidate_label or cur_candidate_label.count("yes") < 2:
+                #     examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label, head=1))
 
-                # add option/row that is unnormalizable to normal prediction stream
-                if text_b not in cur_normalize_result:
-                  examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label, head=1))
+                    # import pdb; pdb.set_trace()
+                #   print("cur_candidate:")
+                #   print(cur_candidate)
+                #   print(cur_candidate_label)
+                #   print("cur_idx")
                 
-                else:
-                  cur_ans_normalize_result = cur_normalize_result[text_b]
-                #   print(cur_normalize_result)
+                # update when question changes
+                if cur_q != text_a:
+                    cur = False
+                    skip_cur_qa_interval = False
+                    cur_q = text_a
 
-                  yes_idxs = [i for i,j in enumerate(filter_cur_candidate_label) if j == 'yes']
-                  yes_ans =  [j for i,j in enumerate(filter_cur_candidate) if i in yes_idxs]
-                  yes_val =  [j for i,j in enumerate(filter_cur_normalize_result) if i in yes_idxs]
+                # at start of each key values of question {}
+                if cur == False:
+                    cur = True
+                    normalize_result = self.normalize(cur_candidate,normalize_type ="minmax",category=cat)
+                                
+                    # to filiter out candidates that are not normalizable
+                    cur_normalize_result = {}
+                    filter_cur_candidate = []
+                    filter_cur_candidate_label = []
+                    filter_cur_normalize_result = []
+                    for i, j in enumerate(zip(cur_candidate, normalize_result)):
+                        if j[1] == None:
+                            continue
+                        else:
+                            cur_normalize_result[j[0]] = j[1]
+                            filter_cur_candidate.append(cur_candidate[i])
+                            filter_cur_candidate_label.append(cur_candidate_label[i])
+                            filter_cur_normalize_result.append(normalize_result[i])
 
-                  if len(yes_val) < 2:
-                    examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label, head=1))
-                    skip_cur_qa_interval = True
-                  
-                  else:
-                  # sort to get min and max
-                    yes_dict = dict(zip(yes_ans, yes_val))
-                    yes_dict = {k: v for k, v in sorted(yes_dict.items(), key=lambda item: item[1])}  
+                    # add option/row that is unnormalizable to normal prediction stream
+                    if text_b not in cur_normalize_result:
+                        examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label, head=1))
                     
-                    sort_ans = list(yes_dict.values())
+                    else:
+                        cur_ans_normalize_result = cur_normalize_result[text_b]
+                        
 
-                    cur_minmax = [sort_ans[0],sort_ans[-1]]
-                    # print("cur_minmaz")
-                    # print(cur_minmax)
-                    examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label, minmax= cur_minmax, nor_val=cur_ans_normalize_result, head=2))
+                        
+                        # pass if there are not enough normalized result
+                        if len(filter_cur_normalize_result) < 2:
+                            examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label, head=1))
+                            skip_cur_qa_interval = True
+                        else:
+                            #sort the normalize result
+                            filter_dict = dict(zip(filter_cur_candidate, filter_cur_normalize_result))
+                            filter_dict = {k: v for k, v in sorted(filter_dict.items(), key=lambda item: item[1])}  
+                                
+                            # the sorted result
+                            sort_ans_txt = list(filter_dict.keys())
+                            cur_minmax = [sort_ans_txt[0],sort_ans_txt[-1]]
+                            
+                            examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label, minmax= cur_minmax, nor_val=cur_ans_normalize_result, head=2))
+                            
+                        # yes_idxs = [i for i,j in enumerate(filter_cur_candidate_label) if j == 'yes']
+                        # yes_ans =  [j for i,j in enumerate(filter_cur_candidate) if i in yes_idxs]
+                        # yes_val =  [j for i,j in enumerate(filter_cur_normalize_result) if i in yes_idxs]
 
-                
+                    #     if len(yes_val) < 2:
+                    #         examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label, head=1))
+                    #         skip_cur_qa_interval = True
+                    
+                    #     else:
+                    # # sort to get min and max
+                    #         yes_dict = dict(zip(yes_ans, yes_val))
+                    #         yes_dict = {k: v for k, v in sorted(yes_dict.items(), key=lambda item: item[1])}  
+                        
+                    #         sort_ans = list(yes_dict.values())
 
+                    #         cur_minmax = [sort_ans[0],sort_ans[-1]]
+                    #         # print("cur_minmaz")
+                    #         # print(cur_minmax)
+                    #         examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label, minmax= cur_minmax, nor_val=cur_ans_normalize_result, head=2))
 
-              else:
-                if text_b not in cur_normalize_result:
-                  examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label, head=1))
+            
                 else:
-                  cur_ans_normalize_result = cur_normalize_result[text_b]
-                  examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label, minmax= cur_minmax, nor_val=cur_ans_normalize_result, head=2))
-            print("cur_candidate:")
-            print(cur_candidate)
-            print(cur_candidate_label)
-            print("cur_idx")
-            print(cur_idx)
-            print("cur_ans")
-            print(text_b)
-            print("cur_cat")
-            print(cat)
-            print(label)
-            print("normalize_result")
-            print(normalize_result)
-            print("cur_ans_normalize_result")
-            print(cur_ans_normalize_result)
-            print("Yes ans")
-            print(yes_ans)
-            print("Yes val")
-            print(yes_val)
-            if i == 30:
-              break
-      return examples
+                    if text_b not in cur_normalize_result:
+                        examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label, head=1))
+                    else:
+                        cur_ans_normalize_result = cur_normalize_result[text_b]
+                        examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label, minmax= cur_minmax, nor_val=cur_ans_normalize_result, head=2))
+
+                # if i == 30:
+                #     break
+        return examples
 
 
 class TemporalProcessor(DataProcessor):
@@ -531,6 +528,13 @@ def convert_examples_to_features(examples, label_list, max_seq_length, tokenizer
 
         if example.text_b:
             tokens_b = tokenizer.tokenize(example.text_b)
+            
+        if nor_val != None:
+            # print(tokens_a)
+            # print(tokens_b)
+            tokens_b = tokens_b+["."]+tokenizer.tokenize(minmax[0])+["."]+tokenizer.tokenize(minmax[1])
+            # print(tokens_b)
+            # print(nor_val)
 
         if tokens_b:
             # Modifies `tokens_a` and `tokens_b` in place so that the total
@@ -944,16 +948,22 @@ def main():
         all_input_mask = torch.tensor([f.input_mask for f in train_features], dtype=torch.long)
         all_segment_ids = torch.tensor([f.segment_ids for f in train_features], dtype=torch.long)
         all_label_ids = torch.tensor([f.label_id for f in train_features], dtype=torch.long)
-        all_head = torch.tensor([f.head for f in features], dtype=torch.log)
+        
+        all_head = torch.tensor([f.head for f in train_features], dtype=torch.long)
+        
+        all_nor_val = torch.tensor(np.array([f.nor_val for f in train_features],dtype=float), dtype=torch.float)
+        train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids, all_head, all_nor_val)
 
-        all_minmax = None
-        all_nor_val = None 
-        if args.interval_model:
-            all_minmax = torch.tensor(np.array([f.minmax for f in features],dtype=float), dtype=torch.float)
-            all_nor_val = torch.tensor(np.array([f.nor_val for f in features],dtype=float), dtype=torch.float)
-            train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids, all_head, all_minmax, all_nor_val)
-        else:
-            train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids, all_head)
+        # we don't need this part
+        # all_minmax = None
+        # all_nor_val = None 
+        # if args.interval_model:
+        #     # all_minmax = torch.tensor(np.array([f.minmax for f in features],dtype=float), dtype=torch.float)
+        #     all_nor_val = torch.tensor(np.array([f.nor_val for f in train_features],dtype=float), dtype=torch.float)
+        #     train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids, all_head, all_minmax, all_nor_val)
+        # else:
+        #     train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids, all_head)
+        
         if args.local_rank == -1:
             train_sampler = RandomSampler(train_data)
             # need to change sampler?
@@ -968,22 +978,17 @@ def main():
             for step, batch in enumerate(tqdm(train_dataloader, desc="Iteration")):
                 batch = tuple(t.to(device) for t in batch)
                 import pdb; pdb.set_trace()
-                if args.interval_model:
-                    input_ids, input_mask, segment_ids, label_ids, heads, minmax_s, nor_val_s = batch
-                    print(minmax_s)
-                    print(nor_val_s)
-                    print(heads)
+                input_ids, input_mask, segment_ids, label_ids, heads, nor_val_s = batch
+                print(nor_val_s)
+                print(heads)
 
-                else:
-                    input_ids, input_mask, segment_ids, label_ids, heads = batch
 
                 ### up untill here Sean 11/09
 
                 # input_ids=None, attention_mask=None, token_type_ids=None, position_ids=None
-                if args.interval_model:
-                    loss, pred_interval = model(input_ids, segment_ids, input_mask, label_ids, minmax_s, nor_val_s, heads)                
-                else:
-                    loss = model(input_ids, segment_ids, input_mask, label_ids)
+
+                loss, pred_interval = model(input_ids, segment_ids, input_mask, label_ids, minmax_s, nor_val_s, heads)                
+
                 if n_gpu > 1:
                     loss = loss.mean() # mean() to average on multi-gpu.
                 if args.fp16 and args.loss_scale != 1.0:

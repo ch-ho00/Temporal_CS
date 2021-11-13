@@ -8,6 +8,7 @@ OMP_NUM_THREADS=4 CUDA_VISIBLE_DEVICES=7 python experiments/bert/run_interval_cl
   --data_dir dataset \
   --interval_model  \
   --bert_model bert-base-uncased \
+  --interval_model  
   --interval_backbone bert-base-uncased \
   --max_seq_length 32 \
   --train_batch_size 32 \

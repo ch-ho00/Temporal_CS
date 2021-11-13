@@ -5,84 +5,84 @@ from transformers import BertTokenizer
 from transformers import BertForSequenceClassification
 from pytorch_pretrained_bert.optimization import BertAdam
 from transformers import BertTokenizer
-from bert_serving.client import BertClient
 
-def np_QD_loss(y_true, y_pred_L, y_pred_U, alpha=0.1, soften = 80., lambda_in = 8.):
-	"""
-	manually (with np) calc the QD_hard loss
-	"""
-	n = y_true.shape[0]
-	y_U_cap = y_pred_U > y_true.reshape(-1)
-	y_L_cap = y_pred_L < y_true.reshape(-1)
-	k_hard = y_U_cap*y_L_cap
-	PICP = np.sum(k_hard)/n
-	# in case didn't capture any need small no.
-	MPIW_cap = np.sum(k_hard * (y_pred_U - y_pred_L)) / (np.sum(k_hard) + 0.001)
-	loss = MPIW_cap + lambda_in * np.sqrt(n) * (max(0,(1-alpha)-PICP)**2)
 
-	return loss
+class IntervalLoss(nn.Module):
+    def __init___(self):
+        pass
+
+    def forward(self, normed_y, label, interval_pred, alpha=0.1, soften = 80., lambda_in = 8.):
+        import pdb; pdb.set_trace()
+        y_pred_L, y_pred_U = interval_pred[:,0], interval_pred[:, 1]
+        normed_ypos = normed_y[label == 1]
+        normed_yneg = normed_y[label == 0]
+
+        pred_label = torch.zeros_like(label)
+
+        # positive samples loss 
+        n = normed_ypos.shape[0]
+        y_U_cap = y_pred_U > normed_ypos.reshape(-1)
+        y_L_cap = y_pred_L < normed_ypos.reshape(-1)
+        k_hard = y_U_cap*y_L_cap
+        PICP = torch.sum(k_hard)/n
+        
+        MPIW_cap = torch.sum(k_hard * (y_pred_U - y_pred_L)) / (torch.sum(k_hard) + 0.001)
+        pos_loss = MPIW_cap + lambda_in * np.sqrt(n) * (max(0,(1-alpha)-PICP)**2)
+
+        # negative sample loss
+        n = normed_yneg.shape[0]
+        y_U_neg = y_pred_U > normed_yneg.reshape(-1)
+        y_L_neg = y_pred_L < normed_yneg.reshape(-1)
+        k_hard_neg = 1 - y_U_neg*y_L_neg
+
+        # when upper bound is correct
+        k_hard_neg = y_U_cap + y_L_cap
+        PICP_neg = torch.sum(k_hard_neg)/n
+        # in case didn't capture any need small no.
+        MPIW_cap_neg = torch.sum(k_hard_neg * (y_pred_U - y_pred_L)) / (torch.sum(k_hard_neg) + 0.001)
+        neg_loss = MPIW_cap_neg + lambda_in * np.sqrt(n) * (max(0,(1-alpha)-PICP_neg)**2)
+
+        pred_label[label ==1] = k_hard
+        pred_label[label ==0] = k_hard_neg
+        
+        return pos_loss + neg_loss, torch.sum(k_hard) + torch.sum(k_hard_neg), pred_label
 
 class Multihead(nn.Module):
     def __init__(self, args, model):
         super(Multihead, self).__init__()
-        self.bert_client = BertClient()
 
-        if args.orig_ckpt:
-            self.orig_model = self.load_ckpt(model, args.orig_ckpt)
-        else:
-            self.orig_model = model
+        self.model = model
+        self.model.output_hidden_states = True
+        self.binary_fc = nn.Linear(768 , 2)
+        self.interval_fc = nn.Linear(768 , 2)
 
+        self.cross_entropy = nn.CrossEntropyLoss(reduce='mean')
+        self.interval_loss = IntervalLoss()
+
+    def forward(self, input_ids, segment_ids, input_mask, label_ids, nor_val_s, heads):
+
+        ypred = torch.zeros(heads.shape[0],2)
+        pred_label = torch.zeros(heads.shape[0])
+
+        loss = 0
+        # import pdb; pdb.set_trace()
+        qa_embed = self.model(input_ids, segment_ids, input_mask)
         
-        self.interval_model =  model = BertForSequenceClassification.from_pretrained(args.interval_backbone,
-                cache_dir=PYTORCH_PRETRAINED_BERT_CACHE / 'distributed_{}'.format(args.local_rank))       
-        self.interval_model.classifier = nn.Identity()
-        self.option_fc = nn.Linear(768, 128)
-        self.fc = nn.Linear(768 + 128 * 2, 2)
-        self.sigmoid = nn.Sigmoid()
-        if args.interval_ckpt: 
-            self.interval_model = self.load_ckpt(self.interval_model, args.interval_ckpt)
-        self.orig_model.output_hidden_states = True
-        self.interval_model.output_hidden_states = True
-  
+        
+        cls_pred = self.binary_fc(qa_embed.logits[heads==1])
+        cls_loss = self.cross_entropy(cls_pred, label_ids[heads==1])
 
-    def load_ckpt(self, model, orig_ckpt):
-        if torch.cuda.is_available():
-            device = torch.device("cuda")
-            self.model.to(device)
-            checkpoint = torch.load(orig_ckpt)
-            try:
-                self.model.load_state_dict(checkpoint['state_dict'])
-            except:
-                try:
-                    self.model.module.load_state_dict(checkpoint['state_dict'])
-                except:
-                    self.model.load_state_dict(checkpoint)
-        else:
-            checkpoint = torch.load(orig_ckpt, map_location='cpu')
-            self.model.load_state_dict(checkpoint['state_dict'])
+        cls_pred_label = torch.argmax(cls_pred, axis=1)        
+        cls_correct = (pred_label == label_ids).int().sum()
 
+        interval_pred = self.interval_fc(qa_embed.logits[heads==2])
+        interval_loss, interval_correct, interval_pred_label = self.interval_loss(nor_val_s[heads==2], label_ids[heads==2], interval_pred)
 
+        ypred[head == 1] = cls_pred
+        ypred[head == 2] = interval_pred
 
-    def forward(self, input_ids, segment_ids, input_mask, label_ids, minmax_s, nor_val_s, heads):
-        # sort out by head value
-        # mask = torch.gather(head ==1)
-        # 1,2 = input_ids[mask]
-        if minmax_s:
-            question_embed = self.interval_model(input_ids, segment_ids, input_mask)
-                # (B, 768)
-            minmax_embed = self.option_fc(minmax_s)
-                # 
-            embed = torch.cat([question_embed,minmax_embed], axis=1)
-            output = self.fc(embed)
-            output = self.sigmoid(output)
-            # def np_QD_loss(y_true, y_pred_L, y_pred_U, alpha, soften = 80., lambda_in = 8.):
-            # label_ids, nor_val_s
-            # mask = label_ids ==1
-            # loss = np_QD_loss(nor_val_s, mask, output[:,0], output[:,1])
-
-        else:
-            # original pipeline
-            loss = self.orig_model(input_ids, segment_ids, input_mask, label_ids)
-
-        return loss
+        pred_label[head ==1] = cls_pred_label
+        pred_label[head ==2] = interval_pred_label
+    
+        return cls_loss + interval_loss, ypred, cls_correct + interval_correct, pred_label
 

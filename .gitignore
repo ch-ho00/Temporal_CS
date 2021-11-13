@@ -1,5 +1,5 @@
-./experiments/bert/1111_baseline/*
-./experiments/bert/berf_output/*
+experiments/bert/1111_baseline
+experiments/bert/berf_output
 *.cqcpu7
 
 # Byte-compiled / optimized / DLL files

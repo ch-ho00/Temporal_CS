@@ -37,10 +37,14 @@ import torch
 from torch.utils.data import TensorDataset, DataLoader, RandomSampler, SequentialSampler
 from torch.utils.data.distributed import DistributedSampler
 
-from pytorch_pretrained_bert.tokenization import BertTokenizer
-from pytorch_pretrained_bert.modeling import BertForSequenceClassification
+# from pytorch_pretrained_bert.tokenization import BertTokenizer
+# from pytorch_pretrained_bert.modeling import BertForSequenceClassification
+# from pytorch_pretrained_bert.optimization import BertAdam
+# from pytorch_pretrained_bert.file_utils import PYTORCH_PRETRAINED_BERT_CACHE
+from transformers import BertTokenizer
+from transformers import BertForSequenceClassification
 from pytorch_pretrained_bert.optimization import BertAdam
-from pytorch_pretrained_bert.file_utils import PYTORCH_PRETRAINED_BERT_CACHE
+from transformers import PYTORCH_PRETRAINED_BERT_CACHE
 
 # added
 from multihead import Multihead
@@ -724,6 +728,11 @@ def main():
                         default=None,
                         help="Load original model's checkpoint")
 
+    parser.add_argument('--interval_ckpt',
+                        type=str,
+                        default=None,
+                        help="Load original model's checkpoint")
+
     #####################################
     parser.add_argument("--data_dir",
                         default=None,
@@ -880,14 +889,18 @@ def main():
         train_examples = processor.get_train_examples(args.data_dir)
         num_train_steps = int(
             len(train_examples) / args.train_batch_size / args.gradient_accumulation_steps * args.num_train_epochs)
-
     # Prepare model
-    model = BertForSequenceClassification.from_pretrained(args.bert_model,
-                cache_dir=PYTORCH_PRETRAINED_BERT_CACHE / 'distributed_{}'.format(args.local_rank))
+    import torch.nn as nn
+    from transformers import BertModel,BertConfig
+    # config = BertConfig.from_pretrained(args.bert_model)
+    # config.output_hidden_states = True 
+    bert_model = BertModel.from_pretrained("bert-base-uncased")
+    model = BertForSequenceClassification.from_pretrained(args.bert_model, num_labels=2)  # ,cache_dir=PYTORCH_PRETRAINED_BERT_CACHE / 'distributed_{}'.format(args.local_rank)
+    model.classifier = nn.Identity()
     import pdb; pdb.set_trace()
     # wrap model to multihead
     if args.interval_model:
-        assert args.orig_ckpt is not None 
+        # assert args.orig_ckpt is not None 
         model = Multihead(args, model)
 
     if args.fp16:
@@ -925,24 +938,23 @@ def main():
     loss_meter = AverageMeter()
 
     if args.do_train:
-        features = convert_examples_to_features(
+        train_features = convert_examples_to_features(
             train_examples, label_list, args.max_seq_length, tokenizer)
-        import pdb; pdb.set_trace()
         logger.info("***** Running training *****")
         logger.info("  Num examples = %d", len(train_examples))
         logger.info("  Batch size = %d", args.train_batch_size)
         logger.info("  Num steps = %d", num_train_steps)
-        all_input_ids = torch.tensor([f.input_ids for f in features], dtype=torch.float)
-        all_input_mask = torch.tensor([f.input_mask for f in features], dtype=torch.float)
-        all_segment_ids = torch.tensor([f.segment_ids for f in features], dtype=torch.float)
-        all_label_ids = torch.tensor([f.label_id for f in features], dtype=torch.float)
-        all_head = torch.tensor([f.head for f in features], dtype=torch.float)
+        all_input_ids = torch.tensor([f.input_ids for f in train_features], dtype=torch.long)
+        all_input_mask = torch.tensor([f.input_mask for f in train_features], dtype=torch.long)
+        all_segment_ids = torch.tensor([f.segment_ids for f in train_features], dtype=torch.long)
+        all_label_ids = torch.tensor([f.label_id for f in train_features], dtype=torch.long)
+        all_head = torch.tensor([f.head for f in train_features], dtype=torch.long)
 
         all_minmax = None
         all_nor_val = None 
         if args.interval_model:
-            all_minmax = torch.tensor(np.array([f.minmax for f in features],dtype=float), dtype=torch.float)
-            all_nor_val = torch.tensor(np.array([f.nor_val for f in features],dtype=float), dtype=torch.float)
+            all_minmax = torch.tensor(np.array([f.minmax for f in train_features],dtype=float), dtype=torch.float)
+            all_nor_val = torch.tensor(np.array([f.nor_val for f in train_features],dtype=float), dtype=torch.float)
             train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids, all_head, all_minmax, all_nor_val)
         else:
             train_data = TensorDataset(all_input_ids, all_input_mask, all_segment_ids, all_label_ids, all_head)
@@ -959,10 +971,10 @@ def main():
             nb_tr_examples, nb_tr_steps = 0, 0
             for step, batch in enumerate(tqdm(train_dataloader, desc="Iteration")):
                 batch = tuple(t.to(device) for t in batch)
-                input_ids, input_mask, segment_ids, label_ids, minmax_s, nor_val_s, heads = batch
-                print(minmax_s)
-                print(nor_val_s)
-                print(heads)
+                if args.interval_model:
+                    input_ids, input_mask, segment_ids, label_ids, heads, minmax_s, nor_val_s = batch
+                else:
+                    input_ids, input_mask, segment_ids, label_ids, heads = batch
                 ### up untill here Sean 11/09
 
                 import pdb; pdb.set_trace()

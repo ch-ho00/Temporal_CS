@@ -2,6 +2,8 @@ whats pre_select = season, nanosecond ?
 
 why exclude Typical Time?
 
+pretrain BERT maximum len = 32 right now how to fix this?
+
 what model to use for interval_model
 
 https://github.com/huggingface/transformers/issues/1001

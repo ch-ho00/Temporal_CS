@@ -983,6 +983,8 @@ def main():
 
         model.train()
         loss_meter = AverageMeter()
+        cls_loss_meter = AverageMeter()
+        interval_loss_meter = AverageMeter()
         acc_meter = AverageMeter()
 
         for _ in trange(int(args.num_train_epochs), desc="Epoch"):
@@ -996,6 +998,9 @@ def main():
                 ### up untill here Sean 11/09
 
                 loss, pred, correct, _ = model(input_ids, segment_ids, input_mask, label_ids, nor_val_s, heads)                
+                
+                cls_loss, interval_loss = loss[1]
+                loss = loss[0]
 
                 if n_gpu > 1:
                     loss = loss.mean() # mean() to average on multi-gpu.
@@ -1010,10 +1015,13 @@ def main():
 
                 loss_meter.update(loss.item(), n=len(batch))
                 loss_meter.update(correct.item(), n=len(batch))
-
+                cls_loss_meter.update(cls_loss.item(), n=len(batch))
+                interval_loss_meter.update(interval_loss.item(), n=len(batch))
                 writer_dict['global_steps'] += 1 
-                writer.add_scalar('train_loss', loss_meter.avg, writer_dict['global_steps'])        
-                writer.add_scalar('train_acc', loss_meter.avg, writer_dict['global_steps'])        
+                writer_dict['writer'].add_scalar('train_loss', loss_meter.avg, writer_dict['global_steps'])        
+                writer_dict['writer'].add_scalar('train_cls_loss', cls_loss_meter.avg, writer_dict['global_steps'])        
+                writer_dict['writer'].add_scalar('train_interval_loss', interval_loss_meter.avg, writer_dict['global_steps'])        
+                writer_dict['writer'].add_scalar('train_acc', loss_meter.avg, writer_dict['global_steps'])        
 
                 nb_tr_examples += input_ids.size(0)
                 nb_tr_steps += 1

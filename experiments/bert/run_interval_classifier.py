@@ -49,6 +49,7 @@ from transformers import PYTORCH_PRETRAINED_BERT_CACHE
 # added
 from multihead import Multihead
 from tensorboardX import SummaryWriter
+from utils import * 
 
 logging.basicConfig(format = '%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                     datefmt = '%m/%d/%Y %H:%M:%S',
@@ -989,20 +990,33 @@ def main():
         interval_loss_meter = AverageMeter()
         acc_meter = AverageMeter()
 
-        for _ in trange(int(args.num_train_epochs), desc="Epoch"):
+        for epoch in trange(int(args.num_train_epochs), desc="Epoch"):
             tr_loss = 0
             nb_tr_examples, nb_tr_steps = 0, 0
             loss_meter.reset()
             acc_meter.reset()
+            cls_loss_meter.reset()
+            interval_loss_meter.reset()
+
             for step, batch in enumerate(tqdm(train_dataloader, desc="Iteration")):
                 batch = tuple(t.to(device) for t in batch)
                 input_ids, input_mask, segment_ids, label_ids, heads, nor_val_s = batch
                 ### up untill here Sean 11/09
 
-                loss, pred, correct, _ = model(input_ids, segment_ids, input_mask, label_ids, nor_val_s, heads)                
+                loss, ypred, correct, _ = model(input_ids, segment_ids, input_mask, label_ids, nor_val_s, heads)                
                 
                 cls_loss, interval_loss = loss[1]
                 loss = loss[0]
+
+                # collect result and visualize
+                if step % 30 == 0:
+
+                    with open(f'{args.output_dir}/intervals.txt', 'a') as f:
+                        intervals = "\n".join([" ".join([str(round(r,2)) for r in row]) for row in ypred[heads==2].detach().cpu().numpy()])
+                        f.write(intervals)
+                    
+                    visualize_confusion(ypred[heads==2].detach().cpu().numpy(), label_ids[heads==2], nor_val_s[heads==2], save_dir=f'{args.output_dir}/{epoch}_{step}')
+
 
                 if n_gpu > 1:
                     loss = loss.mean() # mean() to average on multi-gpu.
@@ -1021,7 +1035,7 @@ def main():
                 interval_loss_meter.update(interval_loss.item(), n=len(batch))
                 writer_dict['global_steps'] += 1 
                 if writer_dict['global_steps'] % 10 == 0:
-                    writer_dict['writer'].add_scalar('train_loss', loss_meter.avg, writer_dict['global_steps'])        
+                    writer_dict['writer'].add_scalar('train_loss', acc_meter.avg, writer_dict['global_steps'])        
                     writer_dict['writer'].add_scalar('train_cls_loss', cls_loss_meter.avg, writer_dict['global_steps'])        
                     writer_dict['writer'].add_scalar('train_interval_loss', interval_loss_meter.avg, writer_dict['global_steps'])        
                     writer_dict['writer'].add_scalar('train_acc', loss_meter.avg, writer_dict['global_steps'])        
@@ -1073,7 +1087,7 @@ def main():
         nb_eval_steps, nb_eval_examples = 0, 0
         pred_labels = []
         total_prints = []
-        for input_ids, input_mask, segment_ids, label_ids, nor_val_s, heads in eval_dataloader:
+        for idx, (input_ids, input_mask, segment_ids, label_ids, nor_val_s, heads) in enumerate(eval_dataloader):
             input_ids = input_ids.to(device)
             input_mask = input_mask.to(device)
             segment_ids = segment_ids.to(device)
@@ -1095,6 +1109,14 @@ def main():
             # tmp_eval_accuracy, prints = accuracy(logits, label_ids)
             # total_prints += prints
 
+            # collect result and visualize
+            if idx % 10 == 0:
+
+                with open(f'{args.output_dir}/intervals.txt', 'a') as f:
+                    intervals = "\n".join(["".join(row) for row in ypred[heads==2].cpu().numpy()])
+                    f.write(intervals)
+                
+                visualize_confusion(intervals, label_ids, nor_val_s, save_dir=f'{args.output_dir}/{idx}')
         #     eval_loss += tmp_eval_loss.mean().item()
         #     eval_accuracy += tmp_eval_accuracy
 

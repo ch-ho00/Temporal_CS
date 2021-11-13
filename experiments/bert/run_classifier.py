@@ -26,10 +26,6 @@ import os
 import logging
 import argparse
 import random
-import json
-
-from word2number import w2n 
-from sutime import SUTime
 from tqdm import tqdm, trange
 
 import numpy as np
@@ -47,13 +43,12 @@ logging.basicConfig(format = '%(asctime)s - %(levelname)s - %(name)s -   %(messa
                     level = logging.INFO)
 logger = logging.getLogger(__name__)
 
-#test test
+
 class InputExample(object):
     """A single training/test example for simple sequence classification."""
 
     def __init__(self, guid, text_a, text_b=None, label=None):
         """Constructs a InputExample.
-
         Args:
             guid: Unique id for the example.
             text_a: string. The untokenized text of the first sequence. For single
@@ -170,229 +165,14 @@ class MnliProcessor(DataProcessor):
                 InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label))
         return examples
 
-class IntervalProcessor(DataProcessor):
-
-    def __init__(self, jars_path):
-        super(IntervalProcessor, self).__init__()
-        self.sutime = SUTime(jars=jars_path, mark_time_ranges=True, include_range=True)
-        self.convert_map = {
-            **dict.fromkeys(["nanoseconds", "nanosecond"], 1.e-9),
-            **dict.fromkeys(["seconds", "second"], 1.0),
-            **dict.fromkeys(["minutes", "minute"], 60.0),
-            **dict.fromkeys(["hours", "hour"], 60.0 * 60.0),
-            **dict.fromkeys(["days", "day"], 24.0 * 60.0 * 60.0),
-            **dict.fromkeys(["weeks", "week"], 7.0 * 24.0 * 60.0 * 60.0),
-            **dict.fromkeys(["months", "month"], 30.0 * 24.0 * 60.0 * 60.0),
-            **dict.fromkeys(["seasons", "season"], 3.0 * 30.0 * 24.0 * 60.0 * 60.0),
-            **dict.fromkeys(["years", "year"], 365.0 * 24.0 * 60.0 * 60.0),
-            **dict.fromkeys(["decades", "decade"], 10.0 * 365.0 * 24.0 * 60.0 * 60.0),
-            **dict.fromkeys(["centuries", "century"], 100.0 * 365.0 * 24.0 * 60.0 * 60.0)
-        }
-        self.ans_errors, self.exp_errors = [], []
-
-    def normalize(self, list_candidate_answers, normalize_type, category="Event Duration"):
-        if category == "Event Duration":
-            def filter(ans):
-                ans = ans.replace(" later", "")
-                pre_select = ["season", "nanosecond"]
-                if any(x in ans for x in pre_select):
-                    return ans
-                else:
-                    try:
-                        return self.sutime.parse(ans)[0]['text']
-                    except:
-                        self.ans_errors.append(ans)
-                        return None
-
-            def get_trivial_floats(tokens):
-                try:
-                    try:
-                        return float(" ".join(tokens).replace("," ,""))
-                    except:
-                        return w2n.word_to_num(" ".join(tokens))
-                except:
-                    return None
-    
-            def get_surface_floats(tokens):
-                if tokens[-1] in ["a", "an"]:
-                    return 1.0
-                if tokens[-1] == "several":
-                    return 4.0
-                if tokens[-1] == "many":
-                    return 10.0
-                if tokens[-1] == "some":
-                    return 3.0
-                if tokens[-1] == "few":
-                    return 3.0
-                if tokens[-1] == "couple":
-                    return 3.0    
-                if tokens[-1] == "tens" or " ".join(tokens[-2:]) == "tens of":
-                    return 10.0
-                if tokens[-1] == "hundreds" or " ".join(tokens[-2:]) == "hundreds of":
-                    return 100.0
-                if tokens[-1] == "thousands" or " ".join(tokens[-2:]) == "thousands of":
-                    return 1000.0
-                if tokens[-1] == "millions" or " ".join(tokens[-2:]) == "millions of":
-                    return 1000000.0
-                if tokens[-1] == "billions" or " ".join(tokens[-2:]) == "billions of":
-                    return 1000000.0
-                if " ".join(tokens[-2:]) in ["a few", "a couple"]:
-                    return 3.0
-                if " ".join(tokens[-3:]) == "a couple of":
-                    return 2.0
-                return None
-    
-            def quantity(tokens):
-                try:
-                    if not tokens:
-                        return 1
-                    if get_trivial_floats(tokens) is not None:
-                        return get_trivial_floats(tokens)
-                    if get_surface_floats(tokens) is not None:
-                        return get_surface_floats(tokens)
-                    string_comb = tokens[-1]
-                    cur = w2n.word_to_num(string_comb)
-                    for i in range(-2, max(-(len(tokens)) - 1, -6), -1):
-                        status = True
-                        try:
-                            _ = w2n.word_to_num(tokens[i])
-                        except:
-                            status = False
-                        if tokens[i] in ["-", "and"] or status:
-                            if tokens[i] != "-":
-                                string_comb = tokens[i] + " " + string_comb
-                            update = w2n.word_to_num(string_comb)
-                            if update is not None:
-                                cur = update
-                        else:
-                            break
-                    if cur is not None:
-                        return float(cur)
-                except Exception as e:
-                    return None 
-    
-            def exp2num(exp):
-                try:
-                    tokens = exp.split()
-                    num = self.convert_map[tokens[-1]] * quantity(tokens[:-1])
-                    return num
-                except:
-                    self.exp_errors.append(exp)
-                    return None
-
-            temporal_expressions = [filter(ans) for ans in list_candidate_answers]
-            #temporal_values = np.array([exp2num(exp[0]['text']) for exp in temporal_expressions])
-            temporal_values, masks = [], [] 
-            results = np.array([None] * len(temporal_expressions))
-            for i, exp in enumerate(temporal_expressions):
-                value = exp2num(exp)
-                if value: 
-                    masks.append(i)
-                    temporal_values.append(value)
-
-            ##################################################
-            # When number of normalizable answers are scarce #
-            ##################################################
-            if len(masks) < 2:
-                return results
-
-            temporal_values = np.log(np.array(temporal_values))
-
-        # if category == "Typical Time":
-
-        #     def exp2min(exp):
-        #         h, m = exp.split(":")
-        #         return float(h) * 60 + float(m)
-
-        #     temporal_values = np.array([exp2min(exp[0]["value"][-5:]) for exp in temporal_expressions])
-
-        if normalize_type == "minmax":
-            min_v = min(temporal_values)
-            max_v = max(temporal_values)
-            temporal_values = (temporal_values - min_v) / (max_v - min_v)
-        
-        elif normalize_type == "meanstd":
-            mean_v = np.mean(temporal_values)
-            std_v = np.std(temporal_values)
-            temporal_values = (temporal_values - mean_v) / std_v
-
-        results[masks] = temporal_values
-        return results
-
-    def get_train_examples(self, data_dir):
-        f = open(os.path.join(data_dir, "dev_3783.tsv"), "r")
-        lines = [x.strip() for x in f.readlines()]
-        qa_pairs = self._create_examples(lines, "train")
-        #TODO: time normalize options
-        # qa_pairs = self.normalize_options(qa_pairs)
-
-        return qa_pairs
-        # sorted_example = sort_by_questsions(examples)
-        # {
-        #     'question1' : {
-        #         'answers' : [1, 10 , 100 ]
-        #         'labels' : [0, 1, 0]
-        #     }
-        # }
-        # for question in sorted_example.keys():
-        #     new_example, label = mixup(sorted_example[question])
-
-        # example_w_pseudo = generate_psuedo_labels(sorted_example)
-        # return example_w_pseudo
-
-    def get_dev_examples(self, data_dir):
-        f = open(os.path.join(data_dir, "test_9442.tsv"), "r")
-        lines = [x.strip() for x in f.readlines()]
-        return self._create_examples(lines, "dev")
-
-    def get_labels(self):
-        # set as none as there is no distinctive labe
-        return []
-
-    def _create_examples(self, lines, type):
-        examples = []
-        qa_pairs = {}
-
-        for (i, line) in enumerate(lines):
-            group = line.split("\t")
-            guid = "%s-%s" % (type, i)
-            text_a = group[0] + " " + group[1]
-            text_b = group[2]
-            label = group[3]
-
-            if text_a not in qa_pairs.keys():
-                # text_b
-                # if min_option > normalized(text_b)
-                    # qa_pairs[text_a]['min'] = text_b
-
-                # if max_option < normalized(text_b)
-                    # qa_pairs[text_a]['max'] = text_b
-                qa_pairs[text_a]['options'] = [text_b]
-                qa_pairs[text_a]['labels'] = [label]   
-
-        return qa_pairs
-
 
 class TemporalProcessor(DataProcessor):
 
     def get_train_examples(self, data_dir):
         f = open(os.path.join(data_dir, "dev_3783.tsv"), "r")
         lines = [x.strip() for x in f.readlines()]
-        examples = self._create_examples(lines, "train")
-        return examples
-        # sorted_example = sort_by_questsions(examples)
-        # {
-        #     'question1' : {
-        #         'answers' : [1, 10 , 100 ]
-        #         'labels' : [0, 1, 0]
-        #     }
-        # }
-        # for question in sorted_example.keys():
-        #     new_example, label = mixup(sorted_example[question])
+        return self._create_examples(lines, "train")
 
-        # example_w_pseudo = generate_psuedo_labels(sorted_example)
-        # return example_w_pseudo
-        
     def get_dev_examples(self, data_dir):
         f = open(os.path.join(data_dir, "test_9442.tsv"), "r")
         lines = [x.strip() for x in f.readlines()]
@@ -596,14 +376,6 @@ def main():
     parser = argparse.ArgumentParser()
 
     ## Required parameters
-    #################################
-    # New argument
-    #################################
-    parser.add_argument("--sutime_jars_path",
-                        default=None,
-                        type=str,
-                        require=True,
-                        help="The path to jars folder required by sutime library")
     parser.add_argument("--data_dir",
                         default=None,
                         type=str,
@@ -690,18 +462,6 @@ def main():
     parser.add_argument('--loss_scale',
                         type=float, default=128,
                         help='Loss scaling, positive power of 2 values can improve fp16 convergence.')
-    #############
-    parser.add_argument('--interval_model',
-                        default=False,
-                        action='store_true',
-                        help="Whether to replace the classification model with interval prediction model")
-    # parser.add_argument('--loss_scale',
-    #                     type=float, default=128,
-    #                     help='Loss scaling, positive power of 2 values can improve fp16 convergence.')
-    # parser.add_argument('--loss_scale',
-    #                     type=float, default=128,
-    #                     help='Loss scaling, positive power of 2 values can improve fp16 convergence.')
-    
 
     args = parser.parse_args()
 
@@ -710,7 +470,6 @@ def main():
         "mnli": MnliProcessor,
         "mrpc": MrpcProcessor,
         "temporal": TemporalProcessor,
-        "interval" : IntervalProcessor
     }
 
     if args.local_rank == -1 or args.no_cuda:
@@ -750,7 +509,7 @@ def main():
     if task_name not in processors:
         raise ValueError("Task not found: %s" % (task_name))
 
-    processor = processors[task_name](args.sutime_jars_path)
+    processor = processors[task_name]()
     label_list = processor.get_labels()
 
     tokenizer = BertTokenizer.from_pretrained(args.bert_model, do_lower_case=args.do_lower_case)
@@ -758,19 +517,13 @@ def main():
     train_examples = None
     num_train_steps = None
     if args.do_train:
-        if args.interval_model:
-            import pdb; pdb.set_trace()        
-            pass
-            # train_exaples = processor.
-        else:
-            train_examples = processor.get_train_examples(args.data_dir)
-            num_train_steps = int(
-                len(train_examples) / args.train_batch_size / args.gradient_accumulation_steps * args.num_train_epochs)
+        train_examples = processor.get_train_examples(args.data_dir)
+        num_train_steps = int(
+            len(train_examples) / args.train_batch_size / args.gradient_accumulation_steps * args.num_train_epochs)
 
     # Prepare model
     model = BertForSequenceClassification.from_pretrained(args.bert_model,
                 cache_dir=PYTORCH_PRETRAINED_BERT_CACHE / 'distributed_{}'.format(args.local_rank))
-
     if args.fp16:
         model.half()
     model.to(device)
@@ -828,7 +581,6 @@ def main():
             for step, batch in enumerate(tqdm(train_dataloader, desc="Iteration")):
                 batch = tuple(t.to(device) for t in batch)
                 input_ids, input_mask, segment_ids, label_ids = batch
-                import pdb; pdb.set_trace()
                 loss = model(input_ids, segment_ids, input_mask, label_ids)
                 if n_gpu > 1:
                     loss = loss.mean() # mean() to average on multi-gpu.

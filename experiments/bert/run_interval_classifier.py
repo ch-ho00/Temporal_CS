@@ -853,6 +853,8 @@ def main():
     # Tensorboard logging writer
     tensorboard_log_dir = os.path.join(args.output_dir, 'log')
     from pathlib import Path
+    print("Saving tensorboard log to ", tensorboard_log_dir)
+    Path(args.output_dir).mkdir(parents=True, exist_ok=True)
     Path(tensorboard_log_dir).mkdir(parents=True, exist_ok=True)
     writer_dict = {
         'writer': SummaryWriter(log_dir=tensorboard_log_dir),
@@ -1014,14 +1016,15 @@ def main():
                 tr_loss += loss.item()
 
                 loss_meter.update(loss.item(), n=len(batch))
-                loss_meter.update(correct.item(), n=len(batch))
+                acc_meter.update(correct.item(), n=len(batch))
                 cls_loss_meter.update(cls_loss.item(), n=len(batch))
                 interval_loss_meter.update(interval_loss.item(), n=len(batch))
                 writer_dict['global_steps'] += 1 
-                writer_dict['writer'].add_scalar('train_loss', loss_meter.avg, writer_dict['global_steps'])        
-                writer_dict['writer'].add_scalar('train_cls_loss', cls_loss_meter.avg, writer_dict['global_steps'])        
-                writer_dict['writer'].add_scalar('train_interval_loss', interval_loss_meter.avg, writer_dict['global_steps'])        
-                writer_dict['writer'].add_scalar('train_acc', loss_meter.avg, writer_dict['global_steps'])        
+                if writer_dict['global_steps'] % 10 == 0:
+                    writer_dict['writer'].add_scalar('train_loss', loss_meter.avg, writer_dict['global_steps'])        
+                    writer_dict['writer'].add_scalar('train_cls_loss', cls_loss_meter.avg, writer_dict['global_steps'])        
+                    writer_dict['writer'].add_scalar('train_interval_loss', interval_loss_meter.avg, writer_dict['global_steps'])        
+                    writer_dict['writer'].add_scalar('train_acc', loss_meter.avg, writer_dict['global_steps'])        
 
                 nb_tr_examples += input_ids.size(0)
                 nb_tr_steps += 1
@@ -1079,10 +1082,12 @@ def main():
             heads = heads.to(device)
 
             with torch.no_grad():
-                batch_eval_loss, ypred, correct, pred_label  = model(input_ids, segment_ids, input_mask, label_ids, )
-
+                batch_eval_loss, ypred, correct, pred_label  = model(input_ids, segment_ids, input_mask, label_ids, nor_val_s, heads)
+            cls_loss, interval_loss = batch_eval_loss[1]
+            batch_eval_loss = batch_eval_loss[0]
+            
             eval_loss += batch_eval_loss.item()
-            eval_correct += correct.item()
+            eval_correct += correct
             nb_eval_examples += ypred.shape[0]
             pred_labels.append(pred_label)
             # logits = logits.detach().cpu().numpy()

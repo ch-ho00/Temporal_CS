@@ -12,5 +12,5 @@ python run_interval_classifier.py \
   --learning_rate 2e-5 \
   --num_train_epochs 3.0 \
   --expname 1113 \
-  --output_dir ./bert_output \
+  --output_dir ./1113_run \
   --sutime_jars_path ../../jars

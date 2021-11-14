@@ -158,7 +158,11 @@ class IntervalProcessor(DataProcessor):
 
     def __init__(self, jars_path):
         super(IntervalProcessor, self).__init__()
+        # Utilize SUTIME library to extract temporal expressions in candidate answers
+        # Ex. "it was 9 years" -> SUTIME -> "9 years"
         self.sutime = SUTime(jars=jars_path, mark_time_ranges=True, include_range=True)
+
+        # Convert map helps transform extracted temporal expressions into according numerical values
         self.convert_map = {
             **dict.fromkeys(["nanoseconds", "nanosecond"], 1.e-9),
             **dict.fromkeys(["seconds", "second"], 1.0),
@@ -172,24 +176,43 @@ class IntervalProcessor(DataProcessor):
             **dict.fromkeys(["decades", "decade"], 10.0 * 365.0 * 24.0 * 60.0 * 60.0),
             **dict.fromkeys(["centuries", "century"], 100.0 * 365.0 * 24.0 * 60.0 * 60.0)
         }
+
+        # Helper lists to store (for debugging):
+        #    1. candidate answers without any temporal expression included
+        #    2. non-normalizable temporal expressions
         self.ans_errors, self.exp_errors = [], []
 
+    '''
+    Normalize function: normalize list of candidate answers belong to the same question
+        Input:
+            list_candidate_answers: list of candidate answers to be normalized
+            normalize_type: normalization method, either "minmax" or "meanstd"
+            category: category in which candidate answers belong,
+                      currently only "Event Duration" is considered
+        Return: list of normalized candidate answers
+    '''
     def normalize(self, list_candidate_answers, normalize_type, category="Event Duration"):
         if category == "Event Duration":
-            # filter unnormalizable/ quantifiable options
+            # filter non-normalizable/ quantifiable options
             def filter(ans):
+                # filter some unusable keywords
                 ans = ans.replace(" later", "")
+                # Pre-select candidate answers that has "season" and "nanosecond" before parsing 
+                # them by SUTIME since those are not recognizable by SUTIME
                 pre_select = ["season", "nanosecond"]
                 if any(x in ans for x in pre_select):
                     return ans
                 else:
                     try:
+                        # Parse candidate answers to extract temporal expressions
                         return self.sutime.parse(ans)[0]['text']
                     except:
+                        # If can't, store that candidate answer for debugging
                         self.ans_errors.append(ans)
                         return None
 
-            
+            # get trivial numerical values if any
+            # Ex: "one thousand" -> 1000.0, "2,000" -> 2000.0 
             def get_trivial_floats(tokens):
                 try:
                     try:
@@ -198,7 +221,8 @@ class IntervalProcessor(DataProcessor):
                         return w2n.word_to_num(" ".join(tokens))
                 except:
                     return None
-    
+            
+            # convert determiner words or phrases into their relative numerical values if existed
             def get_surface_floats(tokens):
                 if tokens[-1] in ["a", "an"]:
                     return 1.0
@@ -228,6 +252,8 @@ class IntervalProcessor(DataProcessor):
                     return 2.0
                 return None
     
+            # convert quantitative parts into numerical values
+            # Ex. "thousands of" -> 1000.0
             def quantity(tokens):
                 try:
                     if not tokens:
@@ -256,20 +282,25 @@ class IntervalProcessor(DataProcessor):
                         return float(cur)
                 except Exception as e:
                     return None 
-    
+            
+            # convert the whole temporal expressions to numerical values
+            # Ex: "millions of hours" -> "millions of" + "hours"
+            #                         ->    1000.0     *  3600.0
+            #                         ->         3.6e6
             def exp2num(exp):
                 try:
                     tokens = exp.split()
                     num = self.convert_map[tokens[-1]] * quantity(tokens[:-1])
                     return num
                 except:
+                    # If can't, store that temporal expression for debugging
                     self.exp_errors.append(exp)
                     return None
 
+            # Filtering
             temporal_expressions = [filter(ans) for ans in list_candidate_answers]
             #temporal_values = np.array([exp2num(exp[0]['text']) for exp in temporal_expressions])
             temporal_values, masks = [], [] 
-
 
             results = np.array([None] * len(temporal_expressions))
             for i, exp in enumerate(temporal_expressions):
@@ -285,6 +316,7 @@ class IntervalProcessor(DataProcessor):
             if len(masks) < 2:
                 return results
 
+            # Taking logarithm to reduce distance among answers' numerical values 
             temporal_values = np.log(np.array(temporal_values))
 
         # if category == "Typical Time":
@@ -295,16 +327,19 @@ class IntervalProcessor(DataProcessor):
 
         #     temporal_values = np.array([exp2min(exp[0]["value"][-5:]) for exp in temporal_expressions])
 
+        # Normalize using Min-Max approach
         if normalize_type == "minmax":
             min_v = min(temporal_values)
             max_v = max(temporal_values)
             temporal_values = (temporal_values - min_v) / (max_v - min_v)
         
+        # Normalize using Mean-Std approach
         elif normalize_type == "meanstd":
             mean_v = np.mean(temporal_values)
             std_v = np.std(temporal_values)
             temporal_values = (temporal_values - mean_v) / std_v
 
+        # Desired output
         results[masks] = temporal_values
         return results
 
@@ -313,18 +348,6 @@ class IntervalProcessor(DataProcessor):
         lines = [x.strip() for x in f.readlines()]
         examples = self._create_examples(lines, "train")
         return examples
-        # sorted_example = sort_by_questsions(examples)
-        # {
-        #     'question1' : {
-        #         'answers' : [1, 10 , 100 ]
-        #         'labels' : [0, 1, 0]
-        #     }
-        # }
-        # for question in sorted_example.keys():
-        #     new_example, label = mixup(sorted_example[question])
-
-        # example_w_pseudo = generate_psuedo_labels(sorted_example)
-        # return example_w_pseudo
 
     def get_dev_examples(self, data_dir):
         f = open(os.path.join(data_dir, "test_9442.tsv"), "r")
@@ -336,11 +359,12 @@ class IntervalProcessor(DataProcessor):
         return ["yes", "no"]
 
     def _create_examples(self, lines, type):
+        # we only keep the data which are event duration for normalization to number
         cat_filter = ["Event Duration"]
 
         questions = {}
 
-
+        # this iteration will create a dictionary with questions as keys and all the labeled answers as values
         for (i, line) in enumerate(lines):
             group = line.split("\t")
             guid = "%s-%s" % (type, i)
@@ -348,7 +372,6 @@ class IntervalProcessor(DataProcessor):
             text_b = group[2]
             label = group[3]
             cat = group[4]
-            #
             if cat not in cat_filter:
                 continue
             if text_a in questions:
@@ -364,7 +387,9 @@ class IntervalProcessor(DataProcessor):
         cur_q = None
         cur_minmax = None
         skip_cur_qa_interval = False
-
+        
+        
+        # this iteration is to labeled the data into two categories for which the first category is for the original head and the second is for the new interval prediction head
         for (i, line) in enumerate(lines):
             group = line.split("\t")
             guid = "%s-%s" % (type, i)
@@ -373,8 +398,10 @@ class IntervalProcessor(DataProcessor):
             label = group[3]
             cat = group[4]
 
+            # if the current data is not event duration it should belongs to the first cat
             if cat not in cat_filter:
                 examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label, head=1))
+            # if the current question answers set dosen't have enought normalized result 
             elif skip_cur_qa_interval == True and cur_q == text_a:
                 examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label, head=1))
             else:
@@ -461,7 +488,7 @@ class IntervalProcessor(DataProcessor):
                     #         # print(cur_minmax)
                     #         examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label, minmax= cur_minmax, nor_val=cur_ans_normalize_result, head=2))
 
-            
+                # this is to save time as for each question we only need to noramlzied all the candidate answers once
                 else:
                     if text_b not in cur_normalize_result:
                         examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label, head=1))
@@ -603,16 +630,6 @@ def convert_examples_to_features(examples, label_list, max_seq_length, tokenizer
         assert len(segment_ids) == max_seq_length
 
         label_id = label_map[example.label]
-        # if ex_index < 5:
-        #     logger.info("*** Example ***")
-        #     logger.info("guid: %s" % (example.guid))
-        #     logger.info("tokens: %s" % " ".join(
-        #             [str(x) for x in tokens]))
-        #     logger.info("input_ids: %s" % " ".join([str(x) for x in input_ids]))
-        #     logger.info("input_mask: %s" % " ".join([str(x) for x in input_mask]))
-        #     logger.info(
-        #             "segment_ids: %s" % " ".join([str(x) for x in segment_ids]))
-        #     logger.info("label: %s (id = %d)" % (example.label, label_id))
 
         features.append(
                 InputFeatures(input_ids=input_ids,

@@ -324,11 +324,12 @@ class IntervalProcessor(DataProcessor):
         return ["yes", "no"]
 
     def _create_examples(self, lines, type):
+        # we only keep the data which are event duration for normalization to number
         cat_filter = ["Event Duration"]
 
         questions = {}
 
-
+        # this iteration will create a dictionary with questions as keys and all the labeled answers as values
         for (i, line) in enumerate(lines):
             group = line.split("\t")
             guid = "%s-%s" % (type, i)
@@ -336,7 +337,6 @@ class IntervalProcessor(DataProcessor):
             text_b = group[2]
             label = group[3]
             cat = group[4]
-            #
             if cat not in cat_filter:
                 continue
             if text_a in questions:
@@ -352,7 +352,9 @@ class IntervalProcessor(DataProcessor):
         cur_q = None
         cur_minmax = None
         skip_cur_qa_interval = False
-
+        
+        
+        # this iteration is to labeled the data into two categories for which the first category is for the original head and the second is for the new interval prediction head
         for (i, line) in enumerate(lines):
             group = line.split("\t")
             guid = "%s-%s" % (type, i)
@@ -361,8 +363,10 @@ class IntervalProcessor(DataProcessor):
             label = group[3]
             cat = group[4]
 
+            # if the current data is not event duration it should belongs to the first cat
             if cat not in cat_filter:
                 examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label, head=1))
+            # if the current question answers set dosen't have enought normalized result 
             elif skip_cur_qa_interval == True and cur_q == text_a:
                 examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label, head=1))
             else:
@@ -449,7 +453,7 @@ class IntervalProcessor(DataProcessor):
                     #         # print(cur_minmax)
                     #         examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label, minmax= cur_minmax, nor_val=cur_ans_normalize_result, head=2))
 
-            
+                # this is to save time as for each question we only need to noramlzied all the candidate answers once
                 else:
                     if text_b not in cur_normalize_result:
                         examples.append(InputExample(guid=guid, text_a=text_a, text_b=text_b, label=label, head=1))

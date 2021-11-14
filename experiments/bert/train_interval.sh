@@ -10,9 +10,10 @@ OMP_NUM_THREADS=4 CUDA_VISIBLE_DEVICES=8 python run_interval_classifier.py \
   --max_seq_length 32 \
   --train_batch_size 32 \
   --learning_rate 2e-5 \
-  --num_train_epochs 3.0 \
+  --num_train_epochs 30 \
   --expname 1113 \
   --output_dir ./1113_run \
+  --ckpt ./baseline.pth \
   --sutime_jars_path ../../jars
 
 

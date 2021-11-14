@@ -37,14 +37,14 @@ import torch
 from torch.utils.data import TensorDataset, DataLoader, RandomSampler, SequentialSampler
 from torch.utils.data.distributed import DistributedSampler
 
-# from pytorch_pretrained_bert.tokenization import BertTokenizer
-# from pytorch_pretrained_bert.modeling import BertForSequenceClassification
-# from pytorch_pretrained_bert.optimization import BertAdam
-# from pytorch_pretrained_bert.file_utils import PYTORCH_PRETRAINED_BERT_CACHE
-from transformers import BertTokenizer
-from transformers import BertForSequenceClassification
+from pytorch_pretrained_bert.tokenization import BertTokenizer
+from pytorch_pretrained_bert.modeling import BertForSequenceClassification
 from pytorch_pretrained_bert.optimization import BertAdam
-from transformers import PYTORCH_PRETRAINED_BERT_CACHE
+from pytorch_pretrained_bert.file_utils import PYTORCH_PRETRAINED_BERT_CACHE
+# from transformers import BertTokenizer
+# from transformers import BertForSequenceClassification
+# from pytorch_pretrained_bert.optimization import BertAdam
+# from transformers import PYTORCH_PRETRAINED_BERT_CACHE
 
 # added
 from multihead import Multihead
@@ -762,7 +762,7 @@ def main():
     #                     default='bert-base-uncased',
     #                     help="What type of model to use for interval model's feature extraction")
 
-    parser.add_argument('--orig_ckpt',
+    parser.add_argument('--ckpt',
                         type=str,
                         default=None,
                         help="Load original model's checkpoint")
@@ -937,12 +937,16 @@ def main():
     # config = BertConfig.from_pretrained(args.bert_model)
     # config.output_hidden_states = True 
     model = BertForSequenceClassification.from_pretrained(args.bert_model, num_labels=2)  # ,cache_dir=PYTORCH_PRETRAINED_BERT_CACHE / 'distributed_{}'.format(args.local_rank)
-    model.classifier = nn.Identity()
+    for param in model.parameters():
+        param.requires_grad = False
+
+    # model.classifier = nn.Identity()
     # wrap model to multihead
+    if args.ckpt:
+        model.load_state_dict(torch.load(f'{args.ckpt}'))
+        print("##########Loaded Original weights #########")
     model = Multihead(args, model)
 
-    if args.interval_ckpt:
-        model = load_ckpt(model, orig_ckpt)            
 
 
     if args.fp16:
@@ -963,18 +967,25 @@ def main():
                             for n, param in model.named_parameters()]
     else:
         param_optimizer = list(model.named_parameters())
-    no_decay = ['bias', 'gamma', 'beta']
-    optimizer_grouped_parameters = [
-        {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)], 'weight_decay_rate': 0.01},
-        {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay_rate': 0.0}
-        ]
-    t_total = num_train_steps
-    if args.local_rank != -1:
-        t_total = t_total // torch.distributed.get_world_size()
-    optimizer = BertAdam(optimizer_grouped_parameters,
-                         lr=args.learning_rate,
-                         warmup=args.warmup_proportion,
-                         t_total=t_total)
+
+    optimize_params = []
+    for name, param in model.named_parameters():
+        if param.requires_grad:
+            print(name, " to be trained")
+            optimize_params.append(param)
+    optimizer = torch.optim.Adam(optimize_params, lr=1e-3)
+    # no_decay = ['bias', 'gamma', 'beta']
+    # optimizer_grouped_parameters = [
+    #     {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)], 'weight_decay_rate': 0.01},
+    #     {'params': [p for n, p in param_optimizer if any(nd in n for nd in no_decay)], 'weight_decay_rate': 0.0}
+    #     ]
+    # t_total = num_train_steps
+    # if args.local_rank != -1:
+    #     t_total = t_total // torch.distributed.get_world_size()
+    # optimizer = BertAdam(optimizer_grouped_parameters,
+    #                      lr=args.learning_rate,
+    #                      warmup=args.warmup_proportion,
+    #                      t_total=t_total)
 
     global_step = 0
 
@@ -1046,16 +1057,16 @@ def main():
                 loss.backward()
                 tr_loss += loss.item()
 
-                loss_meter.update(loss.item(), n=len(batch))
-                acc_meter.update(correct.item(), n=len(batch))
-                cls_loss_meter.update(cls_loss.item(), n=len(batch))
-                interval_loss_meter.update(interval_loss.item(), n=len(batch))
+                loss_meter.update(loss.item(), n=ypred.shape[0])
+                acc_meter.update(correct.item(), n=ypred.shape[0])
+                cls_loss_meter.update(cls_loss.item(), n=ypred.shape[0])
+                interval_loss_meter.update(interval_loss.item(), n=ypred.shape[0])
                 writer_dict['global_steps'] += 1 
                 if writer_dict['global_steps'] % 10 == 0:
-                    writer_dict['writer'].add_scalar('train_loss', acc_meter.avg, writer_dict['global_steps'])        
+                    writer_dict['writer'].add_scalar('train_acc', acc_meter.avg, writer_dict['global_steps'])        
                     writer_dict['writer'].add_scalar('train_cls_loss', cls_loss_meter.avg, writer_dict['global_steps'])        
                     writer_dict['writer'].add_scalar('train_interval_loss', interval_loss_meter.avg, writer_dict['global_steps'])        
-                    writer_dict['writer'].add_scalar('train_acc', loss_meter.avg, writer_dict['global_steps'])        
+                    writer_dict['writer'].add_scalar('train_loss', loss_meter.avg, writer_dict['global_steps'])        
 
                 nb_tr_examples += input_ids.size(0)
                 nb_tr_steps += 1
@@ -1133,7 +1144,7 @@ def main():
                     intervals = "\n".join(["".join(row) for row in ypred[heads==2].cpu().numpy()])
                     f.write(intervals)
                 
-                visualize_confusion(intervals, label_ids, nor_val_s, save_dir=f'{args.output_dir}/{idx}')
+                visualize_confusion(ypred[heads==2].cpu().numpy(), label_ids, nor_val_s, save_dir=f'{args.output_dir}/{idx}')
         #     eval_loss += tmp_eval_loss.mean().item()
         #     eval_accuracy += tmp_eval_accuracy
 

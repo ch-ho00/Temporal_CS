@@ -5,6 +5,11 @@ import pdb
 import numpy as np
 
 def visualize_confusion(intervals, label_ids, nor_val_s, save_dir=None):
+
+    true_interval = np.zeros_like(intervals)
+    true_interval[:,0] = intervals[:,0] - intervals[:,1] 
+    true_interval[:,1] = intervals[:,0] + intervals[:,1] 
+
     nor_val_s = nor_val_s.detach().cpu().numpy()
     label_ids = label_ids.detach().cpu().numpy()
     

@@ -37,6 +37,10 @@ from pytorch_pretrained_bert.tokenization import BertTokenizer
 from pytorch_pretrained_bert.modeling import BertForSequenceClassification
 from pytorch_pretrained_bert.optimization import BertAdam
 from pytorch_pretrained_bert.file_utils import PYTORCH_PRETRAINED_BERT_CACHE
+# from transformers import BertTokenizer
+# from transformers import BertForSequenceClassification
+# from pytorch_pretrained_bert.optimization import BertAdam
+# from transformers import PYTORCH_PRETRAINED_BERT_CACHE
 
 logging.basicConfig(format = '%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                     datefmt = '%m/%d/%Y %H:%M:%S',
@@ -523,7 +527,9 @@ def main():
 
     # Prepare model
     model = BertForSequenceClassification.from_pretrained(args.bert_model,
-                cache_dir=PYTORCH_PRETRAINED_BERT_CACHE / 'distributed_{}'.format(args.local_rank))
+                cache_dir=PYTORCH_PRETRAINED_BERT_CACHE ) # / 'distributed_{}'.format(args.local_rank)
+    torch.save(model.state_dict(), 'baseline.pth')
+
     if args.fp16:
         model.half()
     model.to(device)
@@ -673,6 +679,6 @@ def main():
         with open(output_print_file, "w") as writer:
             for l in total_prints:
                 writer.write(l + "\n")
-
+    torch.save(model.state_dict(), 'baseline.pth')
 if __name__ == "__main__":
     main()

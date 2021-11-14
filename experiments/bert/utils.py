@@ -5,7 +5,6 @@ import pdb
 import numpy as np
 
 def visualize_confusion(intervals, label_ids, nor_val_s, save_dir=None):
-    pdb.set_trace()
     nor_val_s = nor_val_s.detach().cpu().numpy()
     label_ids = label_ids.detach().cpu().numpy()
     

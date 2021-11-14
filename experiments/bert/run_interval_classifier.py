@@ -1127,7 +1127,7 @@ def main():
         # eval_accuracy = eval_accuracy / nb_eval_examples
 
         pred_labels = torch.cat(pred_labels, axis=0).detach().cpu().numpy()
-        total_prints = [ "yes" if p ==1 else "no" for p in pred_labels]
+        total_prints = [ "yes" if p ==0 else "no" for p in pred_labels]
 
         result = {'eval_loss': eval_loss,
                   'eval_accuracy': eval_correct / nb_eval_examples,

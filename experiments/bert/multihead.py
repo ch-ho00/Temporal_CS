@@ -47,7 +47,7 @@ class IntervalLoss(nn.Module):
             # PICP_neg = torch.sum(k_hard_neg)/n
             # # in case didn't capture any need small no.
             # MPIW_cap_neg = torch.sum(k_hard_neg * (y_pred_U[label == 1] - y_pred_L[label == 1] )) / (torch.sum(k_hard_neg) + 0.001)
-            neg_loss = torch.sum((y_U_neg*y_L_neg).int()) * 0.3 + ( 2 * y_pred_L[label == 1])  # + lambda_in * (n**0.5) * (max(0,(1-alpha)-PICP_neg)**2)
+            neg_loss = torch.sum((y_U_neg*y_L_neg).int()) + ( 2 * y_pred_L[label == 1])  # + lambda_in * (n**0.5) * (max(0,(1-alpha)-PICP_neg)**2)
             neg_loss = neg_loss.mean()
             pred_label[label ==1] = k_hard_neg.long()
         # if neg_loss > 200:

@@ -1,7 +1,7 @@
-fold1 Exact Match: 0.40512820512820513
-fold2 Exact Match: 0.40054495912806537
-fold3 Exact Match: 0.35733333333333334
-fold4  Exact Match: 0.44591029023746703
-fold5 Exact Match: 0.4162303664921466
+fold1 Exact Match: 0.4512820512820513
+fold2 Exact Match: 0.4250681198910082
+fold3 Exact Match: 0.4186666666666667
+fold4 Exact Match: 0.48284960422163586
+fold5 Exact Match: 0.43717277486910994
 
-Average 0.4051
+Average 0.4443

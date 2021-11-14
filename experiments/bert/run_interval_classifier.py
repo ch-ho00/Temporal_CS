@@ -313,18 +313,6 @@ class IntervalProcessor(DataProcessor):
         lines = [x.strip() for x in f.readlines()]
         examples = self._create_examples(lines, "train")
         return examples
-        # sorted_example = sort_by_questsions(examples)
-        # {
-        #     'question1' : {
-        #         'answers' : [1, 10 , 100 ]
-        #         'labels' : [0, 1, 0]
-        #     }
-        # }
-        # for question in sorted_example.keys():
-        #     new_example, label = mixup(sorted_example[question])
-
-        # example_w_pseudo = generate_psuedo_labels(sorted_example)
-        # return example_w_pseudo
 
     def get_dev_examples(self, data_dir):
         f = open(os.path.join(data_dir, "test_9442.tsv"), "r")
@@ -603,16 +591,6 @@ def convert_examples_to_features(examples, label_list, max_seq_length, tokenizer
         assert len(segment_ids) == max_seq_length
 
         label_id = label_map[example.label]
-        # if ex_index < 5:
-        #     logger.info("*** Example ***")
-        #     logger.info("guid: %s" % (example.guid))
-        #     logger.info("tokens: %s" % " ".join(
-        #             [str(x) for x in tokens]))
-        #     logger.info("input_ids: %s" % " ".join([str(x) for x in input_ids]))
-        #     logger.info("input_mask: %s" % " ".join([str(x) for x in input_mask]))
-        #     logger.info(
-        #             "segment_ids: %s" % " ".join([str(x) for x in segment_ids]))
-        #     logger.info("label: %s (id = %d)" % (example.label, label_id))
 
         features.append(
                 InputFeatures(input_ids=input_ids,

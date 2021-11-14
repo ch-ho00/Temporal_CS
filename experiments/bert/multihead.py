@@ -31,7 +31,7 @@ class IntervalLoss(nn.Module):
             MPIW_cap = torch.sum(k_hard * ( 2 * y_pred_L[label == 0])) / (torch.sum(k_hard) + 0.001)
             pos_loss = MPIW_cap + lambda_in * (n_pos**0.5) * (max(0,(1-alpha)-PICP)**2)
 
-            pred_label[label ==0] = k_hard.long()
+            pred_label[label ==0] = 1 - k_hard.long()
             pos_loss  = pos_loss.mean()
 
 
@@ -47,10 +47,12 @@ class IntervalLoss(nn.Module):
             # PICP_neg = torch.sum(k_hard_neg)/n
             # # in case didn't capture any need small no.
             # MPIW_cap_neg = torch.sum(k_hard_neg * (y_pred_U[label == 1] - y_pred_L[label == 1] )) / (torch.sum(k_hard_neg) + 0.001)
-            neg_loss = torch.sum((y_U_neg*y_L_neg).int()) + ( 2 * y_pred_L[label == 1]) / (torch.sum(k_hard) + 0.001) # + lambda_in * (n**0.5) * (max(0,(1-alpha)-PICP_neg)**2)
+            neg_loss = torch.sum((y_U_neg*y_L_neg).int()) * 0.3 + ( 2 * y_pred_L[label == 1])  # + lambda_in * (n**0.5) * (max(0,(1-alpha)-PICP_neg)**2)
             neg_loss = neg_loss.mean()
             pred_label[label ==1] = k_hard_neg.long()
-
+        # if neg_loss > 200:
+        #     import pdb; pdb.set_trace()
+        # print(pos_loss, neg_loss)   
         return ((pos_loss if n_pos > 0 else 0) + (neg_loss if  n_neg >0 else 0)) * weight, torch.sum(k_hard) + torch.sum(k_hard_neg), pred_label
 
 class Multihead(nn.Module):
@@ -85,6 +87,7 @@ class Multihead(nn.Module):
 
             ypred[heads == 1] = cls_pred
             pred_label[heads ==1] = cls_pred_label
+            # print("Orignal Acc: ", round(cls_correct.item() /label_ids[heads==1].shape[0], 2) )
 
         interval_loss = torch.Tensor([0]).cuda()
         interval_correct = 0
@@ -95,9 +98,11 @@ class Multihead(nn.Module):
 
             ypred[heads == 2] = interval_pred
             pred_label[heads ==2] = interval_pred_label
+            # print("Interval Acc: ", round(interval_correct.item()/ label_ids[heads==2].shape[0], 2))
 
         loss = interval_loss #  + cls_loss 
         correct = cls_correct + interval_correct
+
         # import pdb; pdb.set_trace()
         return [loss, [cls_loss, interval_loss]], ypred, correct, pred_label 
 

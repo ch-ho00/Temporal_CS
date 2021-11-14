@@ -528,16 +528,16 @@ def main():
     # Prepare model
     model = BertForSequenceClassification.from_pretrained(args.bert_model,
                 cache_dir=PYTORCH_PRETRAINED_BERT_CACHE ) # / 'distributed_{}'.format(args.local_rank)
-    torch.save(model.state_dict(), 'baseline.pth')
+    # torch.save(model.state_dict(), 'baseline.pth')
 
     if args.fp16:
         model.half()
     model.to(device)
-    if args.local_rank != -1:
-        model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.local_rank],
-                                                          output_device=args.local_rank)
-    elif n_gpu > 1:
-        model = torch.nn.DataParallel(model)
+    # if args.local_rank != -1:
+    #     model = torch.nn.parallel.DistributedDataParallel(model, device_ids=[args.local_rank],
+    #                                                       output_device=args.local_rank)
+    # elif n_gpu > 1:
+    #     model = torch.nn.DataParallel(model)
 
     # Prepare optimizer
     if args.fp16:
@@ -679,6 +679,6 @@ def main():
         with open(output_print_file, "w") as writer:
             for l in total_prints:
                 writer.write(l + "\n")
-    torch.save(model.state_dict(), 'baseline.pth')
+    torch.save(model.state_dict(), 'baseline_final.pth')
 if __name__ == "__main__":
     main()

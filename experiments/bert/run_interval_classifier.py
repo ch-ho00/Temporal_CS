@@ -156,10 +156,11 @@ class MrpcProcessor(DataProcessor):
 
 class IntervalProcessor(DataProcessor):
 
-    def __init__(self, jars_path):
+    def __init__(self, jars_path, test=False):
         super(IntervalProcessor, self).__init__()
         # Utilize SUTIME library to extract temporal expressions in candidate answers
         # Ex. "it was 9 years" -> SUTIME -> "9 years"
+        self.test = test
         self.sutime = SUTime(jars=jars_path, mark_time_ranges=True, include_range=True)
 
         # Convert map helps transform extracted temporal expressions into according numerical values
@@ -344,13 +345,21 @@ class IntervalProcessor(DataProcessor):
         return results
 
     def get_train_examples(self, data_dir):
-        f = open(os.path.join(data_dir, "dev_3783.tsv"), "r")
+        if self.test:
+            print("Loading from", os.path.join(data_dir, "train.tsv"), "################")
+            f = open(os.path.join(data_dir, "train.tsv"), "r")
+        else:
+            f = open(os.path.join(data_dir, "dev_3783.tsv"), "r")
         lines = [x.strip() for x in f.readlines()]
         examples = self._create_examples(lines, "train")
         return examples
 
     def get_dev_examples(self, data_dir):
-        f = open(os.path.join(data_dir, "test_9442.tsv"), "r")
+        if self.test:
+            print("Loading from", os.path.join(data_dir, "test.tsv"), "################")
+            f = open(os.path.join(data_dir, "test.tsv"), "r")
+        else:
+            f = open(os.path.join(data_dir, "test_9442.tsv"), "r")
         lines = [x.strip() for x in f.readlines()]
         return self._create_examples(lines, "dev")
 
@@ -503,8 +512,11 @@ class IntervalProcessor(DataProcessor):
 
 class TemporalProcessor(DataProcessor):
 
-    def get_train_examples(self, data_dir):
-        f = open(os.path.join(data_dir, "dev_3783.tsv"), "r")
+    def get_train_examples(self, data_dir, test=False):
+        if test:
+            f = open(os.path.join(data_dir, "train.tsv"), "r")        
+        else:
+            f = open(os.path.join(data_dir, "dev_3783.tsv"), "r")
         lines = [x.strip() for x in f.readlines()]
         examples = self._create_examples(lines, "train")
         return examples
@@ -521,8 +533,11 @@ class TemporalProcessor(DataProcessor):
         # example_w_pseudo = generate_psuedo_labels(sorted_example)
         # return example_w_pseudo
         
-    def get_dev_examples(self, data_dir):
-        f = open(os.path.join(data_dir, "test_9442.tsv"), "r")
+    def get_dev_examples(self, data_dir, test=False):
+        if test:
+            f = open(os.path.join(data_dir, "test.tsv"), "r")        
+        else:
+            f = open(os.path.join(data_dir, "test_9442.tsv"), "r")
         lines = [x.strip() for x in f.readlines()]
         return self._create_examples(lines, "dev")
 
@@ -772,6 +787,10 @@ def main():
                         default=None,
                         help="Load original model's checkpoint")
 
+    parser.add_argument("--test",
+                        default=False,
+                        action='store_true')
+
     #####################################
     parser.add_argument("--data_dir",
                         default=None,
@@ -920,6 +939,7 @@ def main():
     print(args.sutime_jars_path, '???')
     if args.sutime_jars_path:
         params['jars_path'] = args.sutime_jars_path
+        params['test'] = args.test
     processor = processors[task_name](**params)
     label_list = processor.get_labels()
 
@@ -973,7 +993,7 @@ def main():
         if param.requires_grad:
             print(name, " to be trained")
             optimize_params.append(param)
-    optimizer = torch.optim.Adam(optimize_params, lr=1e-3)
+    optimizer = torch.optim.Adam(optimize_params, lr=1e-5)
     # no_decay = ['bias', 'gamma', 'beta']
     # optimizer_grouped_parameters = [
     #     {'params': [p for n, p in param_optimizer if not any(nd in n for nd in no_decay)], 'weight_decay_rate': 0.01},
@@ -1030,9 +1050,8 @@ def main():
                 batch = tuple(t.to(device) for t in batch)
                 input_ids, input_mask, segment_ids, label_ids, heads, nor_val_s = batch
                 ### up untill here Sean 11/09
-
                 loss, ypred, correct, _ = model(input_ids, segment_ids, input_mask, label_ids, nor_val_s, heads)                
-                
+            
                 cls_loss, interval_loss = loss[1]
                 loss = loss[0]
 
@@ -1053,14 +1072,18 @@ def main():
                     # see https://docs.nvidia.com/deeplearning/sdk/mixed-precision-training/index.html
                     loss = loss * args.loss_scale
                 if args.gradient_accumulation_steps > 1:
-                    loss = loss / args.gradient_accumulation_steps                  
-                loss.backward()
+                    loss = loss / args.gradient_accumulation_steps  
+
+                if loss.requires_grad:                
+                    loss.backward()
+                else: 
+                    continue
                 tr_loss += loss.item()
 
-                loss_meter.update(loss.item(), n=ypred.shape[0])
-                acc_meter.update(correct.item(), n=ypred.shape[0])
-                cls_loss_meter.update(cls_loss.item(), n=ypred.shape[0])
-                interval_loss_meter.update(interval_loss.item(), n=ypred.shape[0])
+                loss_meter.update(loss.item()/ ypred.shape[0], n=ypred.shape[0])
+                acc_meter.update(correct.item()/ypred.shape[0], n=ypred.shape[0])
+                cls_loss_meter.update(cls_loss.item()/ ypred.shape[0], n=ypred.shape[0])
+                interval_loss_meter.update(interval_loss.item()/ ypred.shape[0], n=ypred.shape[0])
                 writer_dict['global_steps'] += 1 
                 if writer_dict['global_steps'] % 10 == 0:
                     writer_dict['writer'].add_scalar('train_acc', acc_meter.avg, writer_dict['global_steps'])        
@@ -1115,7 +1138,7 @@ def main():
         nb_eval_steps, nb_eval_examples = 0, 0
         pred_labels = []
         total_prints = []
-        for idx, (input_ids, input_mask, segment_ids, label_ids, nor_val_s, heads) in enumerate(eval_dataloader):
+        for idx, (input_ids, input_mask, segment_ids, label_ids, heads, nor_val_s) in enumerate(eval_dataloader):
             input_ids = input_ids.to(device)
             input_mask = input_mask.to(device)
             segment_ids = segment_ids.to(device)
@@ -1125,11 +1148,13 @@ def main():
 
             with torch.no_grad():
                 batch_eval_loss, ypred, correct, pred_label  = model(input_ids, segment_ids, input_mask, label_ids, nor_val_s, heads)
+            # import pdb; pdb.set_trace()
             cls_loss, interval_loss = batch_eval_loss[1]
             batch_eval_loss = batch_eval_loss[0]
             
             eval_loss += batch_eval_loss.item()
-            eval_correct += correct
+            # import pdb; pdb.set_trace()
+            eval_correct += correct.item()
             nb_eval_examples += ypred.shape[0]
             pred_labels.append(pred_label)
             # logits = logits.detach().cpu().numpy()
@@ -1138,13 +1163,14 @@ def main():
             # total_prints += prints
 
             # collect result and visualize
-            if idx % 10 == 0:
+            # if idx % 10 == 0:
 
-                with open(f'{args.output_dir}/intervals.txt', 'a') as f:
-                    intervals = "\n".join(["".join(row) for row in ypred[heads==2].cpu().numpy()])
-                    f.write(intervals)
+            #     with open(f'{args.output_dir}/intervals.txt', 'a') as f:
+            #         intervals = "\n".join(["".join(row) for row in ypred[heads==2].cpu().numpy()])
+            #         f.write(intervals)
                 
-                visualize_confusion(ypred[heads==2].cpu().numpy(), label_ids, nor_val_s, save_dir=f'{args.output_dir}/{idx}')
+            #     visualize_confusion(ypred[heads==2].cpu().numpy(), label_ids, nor_val_s, save_dir=f'{args.output_dir}/{idx}')
+
         #     eval_loss += tmp_eval_loss.mean().item()
         #     eval_accuracy += tmp_eval_accuracy
 

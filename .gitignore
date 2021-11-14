@@ -2,6 +2,9 @@ experiments/bert/1111_baseline
 experiments/bert/berf_output
 jars/
 *.cqcpu7
+result/
+evaluator/
+dataset/
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
